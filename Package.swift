@@ -5,8 +5,7 @@ import PackageDescription
 let package = Package(
     name: "RealReachability2",
     platforms: [
-        .iOS(.v12),
-        .macOS(.v10_15)
+        .iOS(.v12)
     ],
     products: [
         .library(
@@ -35,6 +34,11 @@ let package = Package(
         .testTarget(
             name: "RealReachability2Tests",
             dependencies: ["RealReachability2"]
+        ),
+        .testTarget(
+            name: "RealReachability2ObjCTests",
+            dependencies: ["RealReachability2ObjC"],
+            path: "Tests/RealReachability2ObjCTests"
         )
     ]
 )

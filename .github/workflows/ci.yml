@@ -1,0 +1,86 @@
+# GitHub Actions workflow for RealReachability2
+# Tests both Swift and Objective-C implementations for iOS
+# Covers all probe modes: parallel, httpOnly, icmpOnly
+
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+# Set minimal permissions for security
+permissions:
+  contents: read
+
+jobs:
+  test-swift:
+    name: Swift Tests
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Show Swift Version
+        run: swift --version
+      
+      - name: Build Swift Package
+        run: swift build -v
+      
+      - name: Run Swift Unit Tests
+        run: swift test --filter RealReachability2Tests -v
+      
+      - name: Run Swift Integration Tests
+        run: swift test --filter ProberIntegrationTests -v
+
+  test-objc:
+    name: Objective-C Tests
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Show Xcode Version
+        run: xcodebuild -version
+      
+      - name: Run Objective-C Tests
+        run: swift test --filter RealReachability2ObjCTests -v
+
+  build-ios:
+    name: Build for iOS
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: List Available Simulators
+        run: xcrun simctl list devices available | grep iPhone | head -10
+      
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild build \
+            -scheme RealReachability2 \
+            -destination "platform=iOS Simulator,name=iPhone 15" \
+            -skipPackagePluginValidation
+      
+      - name: Build ObjC for iOS Simulator
+        run: |
+          xcodebuild build \
+            -scheme RealReachability2ObjC \
+            -destination "platform=iOS Simulator,name=iPhone 15" \
+            -skipPackagePluginValidation
+
+  all-tests:
+    name: All Tests Summary
+    needs: [test-swift, test-objc, build-ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All Tests Passed
+        run: echo "All tests passed successfully!"
