@@ -7,6 +7,7 @@
 
 #import "RRReachability.h"
 #import "RRPathMonitor.h"
+#import "RRPingHelper.h"
 #import <Network/Network.h>
 
 NSNotificationName const kRRReachabilityChangedNotification = @"kRRReachabilityChangedNotification";
@@ -21,6 +22,7 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
 @property (nonatomic, assign, readwrite) RRConnectionType connectionType;
 @property (nonatomic, assign, readwrite) BOOL isNotifierRunning;
 @property (nonatomic, strong) dispatch_queue_t probeQueue;
+@property (nonatomic, strong) RRPingHelper *pingHelper;
 
 @end
 
@@ -44,11 +46,15 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
         _timeout = 5.0;
         _httpProbeURL = [NSURL URLWithString:@"https://captive.apple.com/hotspot-detect.html"];
         _icmpHost = @"8.8.8.8";
-        _icmpPort = 53;
+        _icmpPort = 53;  // Note: Port is not used for real ICMP ping, kept for API compatibility
         _isNotifierRunning = NO;
         _probeQueue = dispatch_queue_create("com.realreachability2.probe", DISPATCH_QUEUE_CONCURRENT);
         
         _pathMonitor = [[RRPathMonitor alloc] init];
+        
+        _pingHelper = [[RRPingHelper alloc] init];
+        _pingHelper.host = _icmpHost;
+        _pingHelper.timeout = _timeout;
         
         [self setupURLSession];
     }
@@ -228,65 +234,13 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
 }
 
 - (void)performICMPProbeWithCompletion:(void (^)(BOOL reachable))completion {
-    // Use Network framework for TCP connection check
-    nw_endpoint_t endpoint = nw_endpoint_create_host([self.icmpHost UTF8String], 
-                                                      [[NSString stringWithFormat:@"%d", self.icmpPort] UTF8String]);
-    nw_parameters_t parameters = nw_parameters_create_secure_tcp(NW_PARAMETERS_DISABLE_PROTOCOL, 
-                                                                   NW_PARAMETERS_DEFAULT_CONFIGURATION);
-    nw_connection_t connection = nw_connection_create(endpoint, parameters);
+    // Use real ICMP ping via RRPingHelper
+    self.pingHelper.host = self.icmpHost;
+    self.pingHelper.timeout = self.timeout;
     
-    __block BOOL completionCalled = NO;
-    dispatch_semaphore_t lock = dispatch_semaphore_create(1);
-    
-    dispatch_queue_t queue = dispatch_queue_create("com.realreachability2.icmp", DISPATCH_QUEUE_SERIAL);
-    
-    // Set up timeout
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self.timeout * NSEC_PER_SEC)), queue, ^{
-        dispatch_semaphore_wait(lock, DISPATCH_TIME_FOREVER);
-        if (!completionCalled) {
-            completionCalled = YES;
-            dispatch_semaphore_signal(lock);
-            nw_connection_cancel(connection);
-            completion(NO);
-        } else {
-            dispatch_semaphore_signal(lock);
-        }
-    });
-    
-    nw_connection_set_state_changed_handler(connection, ^(nw_connection_state_t state, nw_error_t error) {
-        switch (state) {
-            case nw_connection_state_ready:
-                dispatch_semaphore_wait(lock, DISPATCH_TIME_FOREVER);
-                if (!completionCalled) {
-                    completionCalled = YES;
-                    dispatch_semaphore_signal(lock);
-                    nw_connection_cancel(connection);
-                    completion(YES);
-                } else {
-                    dispatch_semaphore_signal(lock);
-                }
-                break;
-                
-            case nw_connection_state_failed:
-            case nw_connection_state_cancelled:
-                dispatch_semaphore_wait(lock, DISPATCH_TIME_FOREVER);
-                if (!completionCalled) {
-                    completionCalled = YES;
-                    dispatch_semaphore_signal(lock);
-                    nw_connection_cancel(connection);
-                    completion(NO);
-                } else {
-                    dispatch_semaphore_signal(lock);
-                }
-                break;
-                
-            default:
-                break;
-        }
-    });
-    
-    nw_connection_set_queue(connection, queue);
-    nw_connection_start(connection);
+    [self.pingHelper pingWithBlock:^(BOOL isSuccess, NSTimeInterval latency) {
+        completion(isSuccess);
+    }];
 }
 
 @end

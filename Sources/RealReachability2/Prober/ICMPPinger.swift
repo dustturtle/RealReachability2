@@ -6,23 +6,21 @@
 //
 
 import Foundation
-import Network
 
 /// ICMP Ping prober for verifying internet connectivity
-/// Note: On iOS, true ICMP requires special entitlements.
-/// This implementation uses a TCP connection check as a fallback.
+/// Uses real ICMP echo request/reply for accurate network reachability testing.
 @available(iOS 13.0, *)
 public final class ICMPPinger: Prober, @unchecked Sendable {
     /// Default host for ping (Google DNS)
     public static let defaultHost = "8.8.8.8"
     
-    /// Default port for TCP check
+    /// Default port (kept for API compatibility, not used for real ICMP)
     public static let defaultPort: UInt16 = 53
     
     /// The host to ping
     private let host: String
     
-    /// The port for TCP check
+    /// The port (kept for API compatibility, not used for real ICMP)
     private let port: UInt16
     
     /// Timeout interval
@@ -31,7 +29,7 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
     /// Creates a new ICMP pinger
     /// - Parameters:
     ///   - host: The host to ping (default: 8.8.8.8)
-    ///   - port: The port for TCP check (default: 53)
+    ///   - port: Kept for API compatibility (not used for real ICMP ping)
     ///   - timeout: Timeout interval in seconds (default: 5)
     public init(host: String = ICMPPinger.defaultHost,
                 port: UInt16 = ICMPPinger.defaultPort,
@@ -41,69 +39,15 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
         self.timeout = timeout
     }
     
-    /// Probes the network using TCP connection
+    /// Probes the network using real ICMP ping
     /// - Returns: `true` if the probe was successful
     public func probe() async -> Bool {
-        return await withCheckedContinuation { continuation in
-            let connection = NWConnection(
-                host: NWEndpoint.Host(host),
-                port: NWEndpoint.Port(rawValue: port)!,
-                using: .tcp
-            )
-            
-            // Use a class to hold the resumed state atomically
-            final class ResumeState {
-                private let lock = NSLock()
-                private var _isResumed = false
-                
-                func tryResume() -> Bool {
-                    lock.lock()
-                    defer { lock.unlock() }
-                    if _isResumed {
-                        return false
-                    }
-                    _isResumed = true
-                    return true
-                }
+        await withCheckedContinuation { continuation in
+            // Use a dedicated class to manage the ping operation
+            let pingOperation = PingOperation(host: host, timeout: timeout)
+            pingOperation.ping { success in
+                continuation.resume(returning: success)
             }
-            
-            let resumeState = ResumeState()
-            
-            // Set up timeout
-            let timeoutWorkItem = DispatchWorkItem { [weak connection] in
-                if resumeState.tryResume() {
-                    connection?.cancel()
-                    continuation.resume(returning: false)
-                }
-            }
-            
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + timeout,
-                execute: timeoutWorkItem
-            )
-            
-            connection.stateUpdateHandler = { [weak connection] state in
-                switch state {
-                case .ready:
-                    if resumeState.tryResume() {
-                        timeoutWorkItem.cancel()
-                        connection?.cancel()
-                        continuation.resume(returning: true)
-                    }
-                    
-                case .failed, .cancelled:
-                    if resumeState.tryResume() {
-                        timeoutWorkItem.cancel()
-                        connection?.cancel()
-                        continuation.resume(returning: false)
-                    }
-                    
-                default:
-                    break
-                }
-            }
-            
-            connection.start(queue: .global())
         }
     }
     
@@ -114,5 +58,87 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
         let success = await probe()
         let latency = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         return ProbeResult(success: success, latencyMs: latency, error: nil)
+    }
+}
+
+// MARK: - Ping Operation
+
+/// Internal class to manage a single ping operation with RunLoop
+@available(iOS 13.0, *)
+private final class PingOperation: NSObject, PingFoundationDelegate {
+    private let host: String
+    private let timeout: TimeInterval
+    private var pingFoundation: PingFoundation?
+    private var completion: ((Bool) -> Void)?
+    private var hasCompleted = false
+    private var timeoutTimer: Timer?
+    private let lock = NSLock()
+    
+    init(host: String, timeout: TimeInterval) {
+        self.host = host
+        self.timeout = timeout
+        super.init()
+    }
+    
+    func ping(completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+        
+        // Run on main thread for RunLoop integration
+        if Thread.isMainThread {
+            startPing()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startPing()
+            }
+        }
+    }
+    
+    private func startPing() {
+        pingFoundation = PingFoundation(hostName: host)
+        pingFoundation?.delegate = self
+        pingFoundation?.start()
+        
+        // Setup timeout
+        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            self?.finishWithResult(false)
+        }
+    }
+    
+    private func finishWithResult(_ success: Bool) {
+        lock.lock()
+        guard !hasCompleted else {
+            lock.unlock()
+            return
+        }
+        hasCompleted = true
+        lock.unlock()
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.timeoutTimer?.invalidate()
+            self?.timeoutTimer = nil
+            self?.pingFoundation?.stop()
+            self?.pingFoundation = nil
+            self?.completion?(success)
+            self?.completion = nil
+        }
+    }
+    
+    // MARK: - PingFoundationDelegate
+    
+    func pingFoundation(_ pinger: PingFoundation, didStartWithAddress address: Data) {
+        // Send ping immediately when started
+        pinger.sendPing(with: nil)
+    }
+    
+    func pingFoundation(_ pinger: PingFoundation, didFailWithError error: Error) {
+        finishWithResult(false)
+    }
+    
+    func pingFoundation(_ pinger: PingFoundation, didFailToSendPacket packet: Data, sequenceNumber: UInt16, error: Error) {
+        finishWithResult(false)
+    }
+    
+    func pingFoundation(_ pinger: PingFoundation, didReceivePingResponsePacket packet: Data, sequenceNumber: UInt16) {
+        finishWithResult(true)
     }
 }
