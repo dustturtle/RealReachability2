@@ -283,9 +283,9 @@ public final class PingFoundation: NSObject {
         delegate?.pingFoundation(self, didFailWithError: error)
     }
     
-    private func didFail(withHostStreamError streamError: CFStreamError) {
+    fileprivate func didFail(withHostStreamError streamError: CFStreamError) {
         var userInfo: [String: Any]?
-        if streamError.domain == CFStreamErrorDomain.netDB.rawValue {
+        if streamError.domain == kCFStreamErrorDomainNetDB {
             userInfo = [kCFGetAddrInfoFailureKey as String: streamError.error]
         }
         let error = NSError(domain: kCFErrorDomainCFNetwork as String, code: Int(CFNetworkErrors.cfHostErrorUnknown.rawValue), userInfo: userInfo)
