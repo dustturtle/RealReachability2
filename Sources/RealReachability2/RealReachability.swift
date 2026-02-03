@@ -120,7 +120,12 @@ public final class RealReachability: @unchecked Sendable {
     /// - Returns: The current reachability status
     public func check() async -> ReachabilityStatus {
         // First, check if we have a network path
-        let path = pathMonitor.path ?? await getCurrentPath()
+        let path: NWPath?
+        if let existingPath = pathMonitor.path {
+            path = existingPath
+        } else {
+            path = await getCurrentPath()
+        }
         
         guard path?.status == .satisfied else {
             return .notReachable
