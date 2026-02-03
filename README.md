@@ -10,7 +10,7 @@ A modern, reliable network reachability library for iOS with both Swift and Obje
   - Objective-C version (iOS 12+) with notification-based API
 - **Configurable**: Choose between parallel, HTTP-only, or ICMP-only probe modes
 - **True Reachability**: Verifies actual internet connectivity, not just network presence
-- **Mix ICMP Ping & HTTP HEAD For Real Reachability**: Verifies actual internet connectivity, not just network presence; uses HTTP head & ICMP echo request/reply (based on Apple's SimplePing)
+
 
 ## Architecture
 
