@@ -6,9 +6,6 @@
 //
 
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 /// HTTP HEAD prober for verifying internet connectivity
 /// Uses Apple's captive portal detection URL for reliable connectivity checks
@@ -45,9 +42,6 @@ public final class HTTPProber: Prober, @unchecked Sendable {
     /// Probes the network using HTTP HEAD request
     /// - Returns: `true` if the probe was successful
     public func probe() async -> Bool {
-        #if canImport(FoundationNetworking)
-        return false
-        #else
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -66,15 +60,11 @@ public final class HTTPProber: Prober, @unchecked Sendable {
         } catch {
             return false
         }
-        #endif
     }
     
     /// Probes with detailed result including latency
     /// - Returns: ProbeResult with success status and latency
     public func probeWithDetails() async -> ProbeResult {
-        #if canImport(FoundationNetworking)
-        return ProbeResult(success: false, latencyMs: nil, error: nil)
-        #else
         let startTime = CFAbsoluteTimeGetCurrent()
         
         var request = URLRequest(url: url)
@@ -96,6 +86,5 @@ public final class HTTPProber: Prober, @unchecked Sendable {
             let latency = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             return ProbeResult(success: false, latencyMs: latency, error: error)
         }
-        #endif
     }
 }

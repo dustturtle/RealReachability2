@@ -5,7 +5,6 @@
 //  Created by RealReachability2 on 2026.
 //
 
-#if canImport(Network)
 import Foundation
 import Network
 
@@ -128,17 +127,3 @@ final class PathMonitorWrapper: @unchecked Sendable {
         }
     }
 }
-#else
-import Foundation
-
-/// Minimal stub when Network framework is unavailable (e.g., Linux)
-@available(iOS 13.0, *)
-final class PathMonitorWrapper: @unchecked Sendable {
-    var path: Any? { nil }
-    var isSatisfied: Bool { false }
-    var connectionType: ConnectionType { .other }
-    var pathStream: AsyncStream<Never> { AsyncStream { _ in } }
-    func start() {}
-    func stop() {}
-}
-#endif
