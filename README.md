@@ -4,13 +4,13 @@ A modern, reliable network reachability library for iOS with both Swift and Obje
 
 ## Features
 
-- **Hybrid Approach**: Combines NWPathMonitor, HTTP HEAD, and real ICMP Ping for accurate reachability detection
+- **Hybrid Approach**: Combines NWPathMonitor, HTTP HEAD, and ICMP Ping for accurate reachability detection
 - **Dual Target Support**: 
   - Swift version (iOS 13+) with async/await API
   - Objective-C version (iOS 12+) with notification-based API
 - **Configurable**: Choose between parallel, HTTP-only, or ICMP-only probe modes
 - **True Reachability**: Verifies actual internet connectivity, not just network presence
-- **Real ICMP Ping**: Uses actual ICMP echo request/reply (based on Apple's SimplePing) instead of TCP fallback
+- **Mix ICMP Ping & HTTP HEAD For Real Reachability**: Verifies actual internet connectivity, not just network presence; uses HTTP head & ICMP echo request/reply (based on Apple's SimplePing)
 
 ## Architecture
 
@@ -97,7 +97,7 @@ Task {
 
 // Configuration
 RealReachability.shared.configuration = ReachabilityConfiguration(
-    probeMode: .httpOnly,  // .parallel, .httpOnly, or .icmpOnly
+    probeMode: .parallel,  // .parallel, .httpOnly, or .icmpOnly
     timeout: 5.0,
     httpProbeURL: URL(string: "https://captive.apple.com/hotspot-detect.html")!,
     icmpHost: "8.8.8.8"  // Host for ICMP ping
@@ -141,8 +141,8 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 }];
 
 // Configuration
-[RRReachability sharedInstance].probeMode = RRProbeModeHTTPOnly;
-[RRReachability sharedInstance].timeout = 10.0;
+[RRReachability sharedInstance].probeMode = RRProbeModeParallel;
+[RRReachability sharedInstance].timeout = 5.0;
 
 // Stop monitoring
 [[RRReachability sharedInstance] stopNotifier];
