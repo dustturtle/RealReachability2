@@ -6,7 +6,9 @@
 //
 
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 
 /// Probe mode for network reachability checks
 @available(iOS 13.0, *)
@@ -77,7 +79,7 @@ public final class RealReachability: @unchecked Sendable {
     }
     
     /// Path monitor wrapper
-    private let pathMonitor: PathMonitorWrapper
+    private let pathMonitor: PathMonitorWrapper?
     
     /// HTTP prober
     private var httpProber: HTTPProber
@@ -101,7 +103,11 @@ public final class RealReachability: @unchecked Sendable {
     /// - Parameter configuration: Configuration for reachability checks
     public init(configuration: ReachabilityConfiguration = .default) {
         self.configuration = configuration
+        #if canImport(Network)
         self.pathMonitor = PathMonitorWrapper()
+        #else
+        self.pathMonitor = nil
+        #endif
         self.httpProber = HTTPProber(url: configuration.httpProbeURL, timeout: configuration.timeout)
         self.icmpPinger = ICMPPinger(host: configuration.icmpHost, port: configuration.icmpPort, timeout: configuration.timeout)
     }
@@ -120,8 +126,9 @@ public final class RealReachability: @unchecked Sendable {
     /// - Returns: The current reachability status
     public func check() async -> ReachabilityStatus {
         // First, check if we have a network path
+        #if canImport(Network)
         let path: NWPath?
-        if let existingPath = pathMonitor.path {
+        if let existingPath = pathMonitor?.path {
             path = existingPath
         } else {
             path = await getCurrentPath()
@@ -132,6 +139,9 @@ public final class RealReachability: @unchecked Sendable {
         }
         
         let connectionType = getConnectionType(from: path)
+        #else
+        let connectionType: ConnectionType = .other
+        #endif
         
         // Probe based on configuration
         let isReachable = await performProbe()
@@ -144,6 +154,7 @@ public final class RealReachability: @unchecked Sendable {
     }
     
     /// Gets the current network path asynchronously
+    #if canImport(Network)
     private func getCurrentPath() async -> NWPath? {
         return await withCheckedContinuation { continuation in
             let tempMonitor = NWPathMonitor()
@@ -156,6 +167,7 @@ public final class RealReachability: @unchecked Sendable {
             tempMonitor.start(queue: queue)
         }
     }
+    #endif
     
     /// Performs the probe based on configuration
     private func performProbe() async -> Bool {
@@ -245,7 +257,7 @@ public final class RealReachability: @unchecked Sendable {
         isNotifierRunning = true
         lock.unlock()
         
-        pathMonitor.start()
+        pathMonitor?.start()
     }
     
     /// Stops the notifier
@@ -258,7 +270,7 @@ public final class RealReachability: @unchecked Sendable {
         isNotifierRunning = false
         lock.unlock()
         
-        pathMonitor.stop()
+        pathMonitor?.stop()
         
         lock.lock()
         statusContinuation?.finish()
@@ -295,6 +307,7 @@ public final class RealReachability: @unchecked Sendable {
     }
     
     /// Gets the connection type from a path
+    #if canImport(Network)
     private func getConnectionType(from path: NWPath?) -> ConnectionType {
         guard let path = path else { return .other }
         
@@ -308,4 +321,5 @@ public final class RealReachability: @unchecked Sendable {
             return .other
         }
     }
+    #endif
 }

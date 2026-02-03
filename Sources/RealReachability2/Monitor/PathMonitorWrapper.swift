@@ -5,6 +5,7 @@
 //  Created by RealReachability2 on 2026.
 //
 
+#if canImport(Network)
 import Foundation
 import Network
 
@@ -127,3 +128,4 @@ final class PathMonitorWrapper: @unchecked Sendable {
         }
     }
 }
+#endif
