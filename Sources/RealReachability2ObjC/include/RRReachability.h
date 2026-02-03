@@ -6,7 +6,7 @@
 //
 
 #import <Foundation/Foundation.h>
-#import <RealReachability2ObjC/RRPathMonitor.h>
+#import "RRPathMonitor.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
