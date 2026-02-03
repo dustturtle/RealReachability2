@@ -128,7 +128,7 @@ public final class RealReachability: @unchecked Sendable {
         // First, check if we have a network path
         #if canImport(Network)
         let path: NWPath?
-        if let existingPath = pathMonitor?.path {
+        if let existingPath = pathMonitor?.path as? NWPath {
             path = existingPath
         } else {
             path = await getCurrentPath()
@@ -279,6 +279,7 @@ public final class RealReachability: @unchecked Sendable {
     }
     
     /// Handles path changes from the monitor
+    #if canImport(Network)
     private func handlePathChange(_ path: NWPath) async {
         let newStatus: ReachabilityStatus
         
@@ -305,6 +306,7 @@ public final class RealReachability: @unchecked Sendable {
             continuation?.yield(newStatus)
         }
     }
+    #endif
     
     /// Gets the connection type from a path
     #if canImport(Network)
