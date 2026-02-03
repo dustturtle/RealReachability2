@@ -293,10 +293,8 @@ public final class RealReachability: @unchecked Sendable {
             continuation?.yield(newStatus)
         }
     }
-    #endif
     
     /// Gets the connection type from a path
-    #if canImport(Network)
     private func getConnectionType(from path: NWPath?) -> ConnectionType {
         guard let path = path else { return .other }
         
