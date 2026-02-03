@@ -32,3 +32,6 @@ Carthage/Build
 # Accio
 Dependencies/
 .accio/
+
+# CodeQL
+_codeql_detected_source_root
