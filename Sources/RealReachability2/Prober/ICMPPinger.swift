@@ -6,7 +6,9 @@
 //
 
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 
 /// ICMP Ping prober for verifying internet connectivity
 /// Note: On iOS, true ICMP requires special entitlements.
@@ -44,6 +46,7 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
     /// Probes the network using TCP connection
     /// - Returns: `true` if the probe was successful
     public func probe() async -> Bool {
+#if canImport(Network)
         return await withCheckedContinuation { continuation in
             let connection = NWConnection(
                 host: NWEndpoint.Host(host),
@@ -105,6 +108,10 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
             
             connection.start(queue: .global())
         }
+#else
+        // Network framework not available (e.g., Linux); treat as not reachable
+        return false
+#endif
     }
     
     /// Probes with detailed result including latency
