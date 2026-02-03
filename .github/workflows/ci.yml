@@ -80,7 +80,7 @@ jobs:
   all-tests:
     name: All Tests Summary
     needs: [test-swift, test-objc, build-ios]
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     steps:
       - name: All Tests Passed
         run: echo "All tests passed successfully!"

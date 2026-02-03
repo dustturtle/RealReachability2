@@ -12,6 +12,13 @@ import XCTest
 @available(iOS 13.0, macOS 10.15, *)
 final class ProberIntegrationTests: XCTestCase {
     
+    override func setUpWithError() throws {
+        // Integration tests require external network; skip on CI to avoid hangs/flakes
+        if ProcessInfo.processInfo.environment["CI"] == "true" {
+            throw XCTSkip("Skipping network integration tests on CI environment")
+        }
+    }
+    
     // MARK: - HTTP Prober Integration Tests
     
     func testHTTPProberWithDefaultURL() async {
