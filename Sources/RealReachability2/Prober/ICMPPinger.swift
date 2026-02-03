@@ -51,19 +51,29 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
                 using: .tcp
             )
             
-            var isResumed = false
-            let lock = NSLock()
+            // Use a class to hold the resumed state atomically
+            final class ResumeState {
+                private let lock = NSLock()
+                private var _isResumed = false
+                
+                func tryResume() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if _isResumed {
+                        return false
+                    }
+                    _isResumed = true
+                    return true
+                }
+            }
+            
+            let resumeState = ResumeState()
             
             // Set up timeout
             let timeoutWorkItem = DispatchWorkItem { [weak connection] in
-                lock.lock()
-                if !isResumed {
-                    isResumed = true
-                    lock.unlock()
+                if resumeState.tryResume() {
                     connection?.cancel()
                     continuation.resume(returning: false)
-                } else {
-                    lock.unlock()
                 }
             }
             
@@ -75,27 +85,17 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
             connection.stateUpdateHandler = { [weak connection] state in
                 switch state {
                 case .ready:
-                    lock.lock()
-                    if !isResumed {
-                        isResumed = true
-                        lock.unlock()
+                    if resumeState.tryResume() {
                         timeoutWorkItem.cancel()
                         connection?.cancel()
                         continuation.resume(returning: true)
-                    } else {
-                        lock.unlock()
                     }
                     
                 case .failed, .cancelled:
-                    lock.lock()
-                    if !isResumed {
-                        isResumed = true
-                        lock.unlock()
+                    if resumeState.tryResume() {
                         timeoutWorkItem.cancel()
                         connection?.cancel()
                         continuation.resume(returning: false)
-                    } else {
-                        lock.unlock()
                     }
                     
                 default:

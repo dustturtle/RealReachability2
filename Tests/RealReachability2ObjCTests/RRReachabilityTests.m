@@ -6,7 +6,7 @@
 //
 
 #import <XCTest/XCTest.h>
-#import <RealReachability2ObjC/RealReachability2ObjC.h>
+#import "RealReachability2ObjC.h"
 
 @interface RRReachabilityTests : XCTestCase
 
