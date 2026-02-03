@@ -10,10 +10,16 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Set minimal permissions for security
+permissions:
+  contents: read
+
 jobs:
   test-swift:
     name: Swift Tests
     runs-on: macos-14
+    permissions:
+      contents: read
     strategy:
       matrix:
         xcode: ['15.4']
@@ -39,6 +45,8 @@ jobs:
   test-objc:
     name: Objective-C Tests
     runs-on: macos-14
+    permissions:
+      contents: read
     strategy:
       matrix:
         xcode: ['15.4']
@@ -58,6 +66,8 @@ jobs:
   build-ios:
     name: Build for iOS
     runs-on: macos-14
+    permissions:
+      contents: read
     strategy:
       matrix:
         xcode: ['15.4']
@@ -88,6 +98,8 @@ jobs:
   build-macos:
     name: Build for macOS
     runs-on: macos-14
+    permissions:
+      contents: read
     strategy:
       matrix:
         xcode: ['15.4']
