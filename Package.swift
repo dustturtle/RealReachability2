@@ -35,6 +35,11 @@ let package = Package(
         .testTarget(
             name: "RealReachability2Tests",
             dependencies: ["RealReachability2"]
+        ),
+        .testTarget(
+            name: "RealReachability2ObjCTests",
+            dependencies: ["RealReachability2ObjC"],
+            path: "Tests/RealReachability2ObjCTests"
         )
     ]
 )
