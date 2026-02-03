@@ -4,12 +4,13 @@ A modern, reliable network reachability library for iOS with both Swift and Obje
 
 ## Features
 
-- **Hybrid Approach**: Combines NWPathMonitor, HTTP HEAD, and ICMP Ping for accurate reachability detection
+- **Hybrid Approach**: Combines NWPathMonitor, HTTP HEAD, and real ICMP Ping for accurate reachability detection
 - **Dual Target Support**: 
   - Swift version (iOS 13+) with async/await API
   - Objective-C version (iOS 12+) with notification-based API
 - **Configurable**: Choose between parallel, HTTP-only, or ICMP-only probe modes
 - **True Reachability**: Verifies actual internet connectivity, not just network presence
+- **Real ICMP Ping**: Uses actual ICMP echo request/reply (based on Apple's SimplePing) instead of TCP fallback
 
 ## Architecture
 
@@ -25,6 +26,7 @@ A modern, reliable network reachability library for iOS with both Swift and Obje
 ┌───────────────────┐               ┌───────────────────┐
 │   HTTP HEAD       │               │   ICMP Ping       │
 │   captive.apple   │               │   8.8.8.8         │
+│                   │               │   (Real ICMP)     │
 └───────────────────┘               └───────────────────┘
         │                                     │
         └──────────────┬──────────────────────┘
@@ -98,8 +100,7 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
     probeMode: .httpOnly,  // .parallel, .httpOnly, or .icmpOnly
     timeout: 5.0,
     httpProbeURL: URL(string: "https://captive.apple.com/hotspot-detect.html")!,
-    icmpHost: "8.8.8.8",
-    icmpPort: 53
+    icmpHost: "8.8.8.8"  // Host for ICMP ping
 )
 ```
 
@@ -153,13 +154,13 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 |------|-------------|
 | `.parallel` (default) | Uses both HTTP HEAD and ICMP in parallel, succeeds if either succeeds |
 | `.httpOnly` | Uses only HTTP HEAD request to Apple's captive portal |
-| `.icmpOnly` | Uses only TCP connection check (ICMP fallback) |
+| `.icmpOnly` | Uses real ICMP echo request/reply |
 
 ## Components
 
 - **NWPathMonitor**: System-level network status changes (fast notification)
 - **HTTP HEAD**: Checks connectivity to Apple's captive portal (most reliable)
-- **ICMP Ping**: TCP connection check to Google DNS (fallback)
+- **ICMP Ping**: Real ICMP echo request/reply to Google DNS (based on Apple's SimplePing)
 
 ## Requirements
 

@@ -251,6 +251,95 @@
     XCTAssertEqual(RRProbeModeICMPOnly, 2);
 }
 
+#pragma mark - RRPingFoundation Tests
+
+- (void)testPingFoundationInitialization {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@"8.8.8.8"];
+    XCTAssertNotNil(ping, @"Ping foundation should initialize");
+    XCTAssertEqualObjects(ping.hostName, @"8.8.8.8", @"Host name should be set correctly");
+}
+
+- (void)testPingFoundationWithDifferentHosts {
+    NSArray *hosts = @[@"8.8.8.8", @"1.1.1.1", @"google.com", @"apple.com"];
+    
+    for (NSString *host in hosts) {
+        RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:host];
+        XCTAssertNotNil(ping, @"Ping foundation should initialize for host: %@", host);
+        XCTAssertEqualObjects(ping.hostName, host, @"Host name should match");
+    }
+}
+
+- (void)testPingFoundationIdentifier {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@"8.8.8.8"];
+    XCTAssertTrue(ping.identifier > 0, @"Identifier should be set");
+}
+
+- (void)testPingFoundationInitialSequenceNumber {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@"8.8.8.8"];
+    XCTAssertEqual(ping.nextSequenceNumber, 0, @"Initial sequence number should be 0");
+}
+
+- (void)testPingFoundationAddressStyleDefault {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@"8.8.8.8"];
+    XCTAssertEqual(ping.addressStyle, RRPingFoundationAddressStyleAny, @"Default address style should be any");
+}
+
+- (void)testPingFoundationAddressStyleConfiguration {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@"8.8.8.8"];
+    
+    ping.addressStyle = RRPingFoundationAddressStyleICMPv4;
+    XCTAssertEqual(ping.addressStyle, RRPingFoundationAddressStyleICMPv4);
+    
+    ping.addressStyle = RRPingFoundationAddressStyleICMPv6;
+    XCTAssertEqual(ping.addressStyle, RRPingFoundationAddressStyleICMPv6);
+    
+    ping.addressStyle = RRPingFoundationAddressStyleAny;
+    XCTAssertEqual(ping.addressStyle, RRPingFoundationAddressStyleAny);
+}
+
+- (void)testPingFoundationInitialHostAddress {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@"8.8.8.8"];
+    // Before start, host address should be nil
+    XCTAssertNil(ping.hostAddress, @"Host address should be nil before start");
+}
+
+- (void)testPingFoundationWithEmptyHost {
+    RRPingFoundation *ping = [[RRPingFoundation alloc] initWithHostName:@""];
+    XCTAssertNil(ping, @"Ping foundation should not initialize with empty host");
+}
+
+#pragma mark - RRPingHelper Tests
+
+- (void)testPingHelperInitialization {
+    RRPingHelper *helper = [[RRPingHelper alloc] init];
+    XCTAssertNotNil(helper, @"Ping helper should initialize");
+}
+
+- (void)testPingHelperDefaultTimeout {
+    RRPingHelper *helper = [[RRPingHelper alloc] init];
+    XCTAssertEqual(helper.timeout, 2.0, @"Default timeout should be 2.0 seconds");
+}
+
+- (void)testPingHelperSetHost {
+    RRPingHelper *helper = [[RRPingHelper alloc] init];
+    helper.host = @"8.8.8.8";
+    XCTAssertEqualObjects(helper.host, @"8.8.8.8", @"Host should be set correctly");
+}
+
+- (void)testPingHelperSetTimeout {
+    RRPingHelper *helper = [[RRPingHelper alloc] init];
+    helper.timeout = 5.0;
+    XCTAssertEqual(helper.timeout, 5.0, @"Timeout should be set correctly");
+}
+
+- (void)testPingHelperCancel {
+    RRPingHelper *helper = [[RRPingHelper alloc] init];
+    helper.host = @"8.8.8.8";
+    // Cancel should not crash even if not pinging
+    [helper cancel];
+    // Test passes if no crash
+}
+
 #pragma mark - Notification Tests
 
 - (void)testNotificationNameDefined {

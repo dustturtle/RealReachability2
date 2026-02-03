@@ -16,3 +16,5 @@ FOUNDATION_EXPORT const unsigned char RealReachability2ObjCVersionString[];
 // Public headers
 #import "RRReachability.h"
 #import "RRPathMonitor.h"
+#import "RRPingFoundation.h"
+#import "RRPingHelper.h"
