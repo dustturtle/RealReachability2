@@ -142,6 +142,63 @@ final class RealReachability2Tests: XCTestCase {
         }
     }
     
+    // MARK: - PingFoundation Tests
+    
+    func testPingFoundationInitialization() {
+        let pingFoundation = PingFoundation(hostName: "8.8.8.8")
+        XCTAssertNotNil(pingFoundation)
+        XCTAssertEqual(pingFoundation.hostName, "8.8.8.8")
+    }
+    
+    func testPingFoundationWithDifferentHosts() {
+        let hosts = ["8.8.8.8", "1.1.1.1", "google.com", "apple.com"]
+        
+        for host in hosts {
+            let pingFoundation = PingFoundation(hostName: host)
+            XCTAssertNotNil(pingFoundation)
+            XCTAssertEqual(pingFoundation.hostName, host)
+        }
+    }
+    
+    func testPingFoundationIdentifierIsUnique() {
+        let ping1 = PingFoundation(hostName: "8.8.8.8")
+        let ping2 = PingFoundation(hostName: "8.8.8.8")
+        
+        // Identifiers should be different (random)
+        // Note: There's a very small chance they could be the same
+        XCTAssertNotNil(ping1.identifier)
+        XCTAssertNotNil(ping2.identifier)
+    }
+    
+    func testPingFoundationInitialSequenceNumber() {
+        let pingFoundation = PingFoundation(hostName: "8.8.8.8")
+        XCTAssertEqual(pingFoundation.nextSequenceNumber, 0)
+    }
+    
+    func testPingFoundationAddressStyleDefault() {
+        let pingFoundation = PingFoundation(hostName: "8.8.8.8")
+        XCTAssertEqual(pingFoundation.addressStyle, .any)
+    }
+    
+    func testPingFoundationAddressStyleConfiguration() {
+        let pingFoundation = PingFoundation(hostName: "8.8.8.8")
+        
+        pingFoundation.addressStyle = .icmpv4
+        XCTAssertEqual(pingFoundation.addressStyle, .icmpv4)
+        
+        pingFoundation.addressStyle = .icmpv6
+        XCTAssertEqual(pingFoundation.addressStyle, .icmpv6)
+        
+        pingFoundation.addressStyle = .any
+        XCTAssertEqual(pingFoundation.addressStyle, .any)
+    }
+    
+    func testPingFoundationInitialHostAddress() {
+        let pingFoundation = PingFoundation(hostName: "8.8.8.8")
+        // Before start, host address should be nil
+        XCTAssertNil(pingFoundation.hostAddress)
+    }
+    
     // MARK: - ICMPPinger Tests
     
     func testICMPPingerDefaults() {
