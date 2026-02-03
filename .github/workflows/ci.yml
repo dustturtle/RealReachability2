@@ -1,5 +1,5 @@
 # GitHub Actions workflow for RealReachability2
-# Tests both Swift and Objective-C implementations on macOS
+# Tests both Swift and Objective-C implementations for iOS
 # Covers all probe modes: parallel, httpOnly, icmpOnly
 
 name: CI
@@ -77,21 +77,9 @@ jobs:
             -destination "platform=iOS Simulator,name=iPhone 15" \
             -skipPackagePluginValidation
 
-  build-macos:
-    name: Build for macOS
-    runs-on: macos-14
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Build Swift Package for macOS
-        run: swift build --arch arm64 --arch x86_64
-
   all-tests:
     name: All Tests Summary
-    needs: [test-swift, test-objc, build-ios, build-macos]
+    needs: [test-swift, test-objc, build-ios]
     runs-on: ubuntu-latest
     steps:
       - name: All Tests Passed
