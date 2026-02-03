@@ -5,7 +5,8 @@ import PackageDescription
 let package = Package(
     name: "RealReachability2",
     platforms: [
-        .iOS(.v12)
+        .iOS(.v12),
+        .macOS(.v10_15)
     ],
     products: [
         .library(
@@ -18,7 +19,7 @@ let package = Package(
         )
     ],
     targets: [
-        // Swift version - iOS 13+
+        // Swift version - iOS 13+ / macOS 10.15+
         .target(
             name: "RealReachability2",
             dependencies: [],
