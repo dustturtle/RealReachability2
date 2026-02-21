@@ -10,7 +10,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Notification posted when reachability status changes
+/// Notification posted when reachability status or connection type changes
 FOUNDATION_EXPORT NSNotificationName const kRRReachabilityChangedNotification;
 
 /// Key for the reachability status in the notification userInfo
@@ -68,7 +68,7 @@ API_AVAILABLE(ios(12.0))
 @property (nonatomic, assign) uint16_t icmpPort;
 
 /// Starts the reachability notifier
-/// Posts kRRReachabilityChangedNotification when status changes
+/// Posts kRRReachabilityChangedNotification when status or connection type changes
 - (void)startNotifier;
 
 /// Stops the reachability notifier

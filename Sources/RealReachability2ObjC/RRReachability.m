@@ -70,6 +70,22 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
     self.session = [NSURLSession sessionWithConfiguration:config];
 }
 
+/**
+ Starts continuous network reachability monitoring.
+
+ This method installs a path update handler, begins monitoring via `RRPathMonitor`,
+ and runs active probes (HTTP and/or ICMP based on `probeMode`) when the network
+ path becomes satisfied.
+
+ The notifier is idempotent: calling this method while monitoring is already active
+ has no effect.
+
+ - Note: Reachability change notifications are posted through
+ `kRRReachabilityChangedNotification` when either the resolved status or
+ connection type changes.
+
+ - SeeAlso: `-stopNotifier`
+ */
 - (void)startNotifier {
     if (self.isNotifierRunning) {
         return;
@@ -110,10 +126,12 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
 - (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type {
     dispatch_async(dispatch_get_main_queue(), ^{
         BOOL statusChanged = (self.currentStatus != status);
+        BOOL connectionTypeChanged = (self.connectionType != type);
+        BOOL shouldNotify = statusChanged || connectionTypeChanged;
         self.currentStatus = status;
         self.connectionType = type;
         
-        if (statusChanged) {
+        if (shouldNotify) {
             NSDictionary *userInfo = @{
                 kRRReachabilityStatusKey: @(status),
                 kRRConnectionTypeKey: @(type)

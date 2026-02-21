@@ -12,7 +12,19 @@
 
 @end
 
+@interface RRReachability (TestHooks)
+- (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type;
+@end
+
 @implementation RRReachabilityTests
+
+- (void)drainMainQueue {
+    XCTestExpectation *drainExpectation = [self expectationWithDescription:@"Drain main queue"];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [drainExpectation fulfill];
+    });
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+}
 
 #pragma mark - Singleton Tests
 
@@ -352,6 +364,88 @@
     XCTAssertNotNil(kRRConnectionTypeKey, @"Connection type key should be defined");
     XCTAssertEqualObjects(kRRReachabilityStatusKey, @"kRRReachabilityStatusKey");
     XCTAssertEqualObjects(kRRConnectionTypeKey, @"kRRConnectionTypeKey");
+}
+
+- (void)testNotificationPostedWhenStatusChanges {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification should be posted when status changes"];
+    
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                    object:reachability
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *notification) {
+        [expectation fulfill];
+    }];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeWiFi];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
+- (void)testNotificationPostedWhenConnectionTypeChangesButStatusSame {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeWiFi];
+    [self drainMainQueue];
+    
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification should be posted when connection type changes"];
+    
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                    object:reachability
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *notification) {
+        [expectation fulfill];
+    }];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeCellular];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
+- (void)testNotificationNotPostedWhenStatusAndConnectionTypeUnchanged {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeWiFi];
+    [self drainMainQueue];
+    
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification should not be posted when state is unchanged"];
+    expectation.inverted = YES;
+    
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                    object:reachability
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *notification) {
+        [expectation fulfill];
+    }];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeWiFi];
+    
+    [self waitForExpectationsWithTimeout:0.3 handler:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
+- (void)testNotificationUserInfoContainsLatestStatusAndConnectionType {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification userInfo should contain latest status and connection type"];
+    
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                    object:reachability
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *notification) {
+        NSNumber *status = notification.userInfo[kRRReachabilityStatusKey];
+        NSNumber *type = notification.userInfo[kRRConnectionTypeKey];
+        
+        XCTAssertEqual(status.integerValue, RRReachabilityStatusNotReachable);
+        XCTAssertEqual(type.integerValue, RRConnectionTypeNone);
+        [expectation fulfill];
+    }];
+    
+    [reachability updateStatus:RRReachabilityStatusNotReachable connectionType:RRConnectionTypeNone];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
 @end

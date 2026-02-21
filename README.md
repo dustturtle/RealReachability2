@@ -113,6 +113,7 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 [[RRReachability sharedInstance] startNotifier];
 
 // Listen for changes
+// Posted when reachability status or connection type changes
 [[NSNotificationCenter defaultCenter] 
     addObserver:self 
     selector:@selector(reachabilityChanged:)
