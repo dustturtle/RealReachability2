@@ -14,7 +14,9 @@
 
 @interface RRReachability (TestHooks)
 - (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type;
+- (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type secondaryReachable:(BOOL)secondaryReachable;
 - (void)performProbeWithCompletion:(void (^)(BOOL reachable))completion;
+- (void)performHTTPProbeAllowingCellular:(BOOL)allowCellular completion:(void (^)(BOOL reachable))completion;
 @end
 
 @interface RRPathMonitorFake : RRPathMonitor
@@ -43,6 +45,23 @@
 - (void)performProbeWithCompletion:(void (^)(BOOL reachable))completion {
     if (completion) {
         completion(self.stubProbeReachable);
+    }
+}
+
+@end
+
+@interface RRReachabilityHTTPProbeCaptureStub : RRReachability
+@property (nonatomic, assign) BOOL didPerformHTTPProbe;
+@property (nonatomic, assign) BOOL lastAllowsCellular;
+@end
+
+@implementation RRReachabilityHTTPProbeCaptureStub
+
+- (void)performHTTPProbeAllowingCellular:(BOOL)allowCellular completion:(void (^)(BOOL reachable))completion {
+    self.didPerformHTTPProbe = YES;
+    self.lastAllowsCellular = allowCellular;
+    if (completion) {
+        completion(YES);
     }
 }
 
@@ -85,8 +104,8 @@
 
 - (void)testDefaultHTTPProbeURL {
     RRReachability *reachability = [[RRReachability alloc] init];
-    NSURL *expectedURL = [NSURL URLWithString:@"https://captive.apple.com/hotspot-detect.html"];
-    XCTAssertEqualObjects(reachability.httpProbeURL, expectedURL, @"Default HTTP probe URL should be Apple's captive portal");
+    NSURL *expectedURL = [NSURL URLWithString:@"https://www.gstatic.com/generate_204"];
+    XCTAssertEqualObjects(reachability.httpProbeURL, expectedURL, @"Default HTTP probe URL should be generate_204 endpoint");
 }
 
 - (void)testDefaultICMPHost {
@@ -112,6 +131,16 @@
 - (void)testDefaultPeriodicProbeEnabled {
     RRReachability *reachability = [[RRReachability alloc] init];
     XCTAssertTrue(reachability.periodicProbeEnabled, @"Periodic probe should be enabled by default");
+}
+
+- (void)testDefaultAllowCellularFallbackDisabled {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    XCTAssertFalse(reachability.allowCellularFallback, @"Cellular fallback should be disabled by default");
+}
+
+- (void)testDefaultSecondaryReachabilityDisabled {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    XCTAssertFalse(reachability.isSecondaryReachable, @"Secondary reachability should be disabled by default");
 }
 
 #pragma mark - Probe Mode Configuration Tests
@@ -204,6 +233,84 @@
     
     reachability.periodicProbeEnabled = YES;
     XCTAssertTrue(reachability.periodicProbeEnabled, @"Should be able to enable periodic probe");
+}
+
+- (void)testSetAllowCellularFallback {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    
+    reachability.allowCellularFallback = YES;
+    XCTAssertTrue(reachability.allowCellularFallback, @"Should be able to enable cellular fallback");
+    
+    reachability.allowCellularFallback = NO;
+    XCTAssertFalse(reachability.allowCellularFallback, @"Should be able to disable cellular fallback");
+}
+
+- (void)testICMPOnlyWithAllowCellularFallbackReturnsNotReachable {
+    RRReachabilityProbeStub *reachability = [[RRReachabilityProbeStub alloc] init];
+    RRPathMonitorFake *fakeMonitor = [[RRPathMonitorFake alloc] init];
+    
+    [reachability setValue:fakeMonitor forKey:@"pathMonitor"];
+    [fakeMonitor setValue:@(YES) forKey:@"isSatisfied"];
+    [fakeMonitor setValue:@(RRConnectionTypeWiFi) forKey:@"connectionType"];
+    
+    reachability.stubProbeReachable = YES;
+    reachability.probeMode = RRProbeModeICMPOnly;
+    reachability.allowCellularFallback = YES;
+    
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Completion should return not reachable for invalid fallback configuration"];
+    [reachability checkReachabilityWithCompletion:^(RRReachabilityStatus status, RRConnectionType type) {
+        XCTAssertEqual(status, RRReachabilityStatusNotReachable, @"Invalid fallback configuration should fail immediately");
+        XCTAssertEqual(type, RRConnectionTypeWiFi, @"Connection type should still be reported from current path");
+        [expectation fulfill];
+    }];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+}
+
+- (void)testHTTPOnlyProbeDisablesCellularOnWiFiWhenFallbackDisabled {
+    RRReachabilityHTTPProbeCaptureStub *reachability = [[RRReachabilityHTTPProbeCaptureStub alloc] init];
+    RRPathMonitorFake *fakeMonitor = [[RRPathMonitorFake alloc] init];
+    
+    [reachability setValue:fakeMonitor forKey:@"pathMonitor"];
+    [fakeMonitor setValue:@(YES) forKey:@"isSatisfied"];
+    [fakeMonitor setValue:@(RRConnectionTypeWiFi) forKey:@"connectionType"];
+    
+    reachability.probeMode = RRProbeModeHTTPOnly;
+    reachability.allowCellularFallback = NO;
+    
+    XCTestExpectation *expectation = [self expectationWithDescription:@"HTTP probe should disable cellular on Wi-Fi when fallback is off"];
+    [reachability checkReachabilityWithCompletion:^(RRReachabilityStatus status, RRConnectionType type) {
+        XCTAssertTrue(reachability.didPerformHTTPProbe, @"HTTP probe should run");
+        XCTAssertFalse(reachability.lastAllowsCellular, @"Cellular should be disallowed for primary Wi-Fi probe");
+        XCTAssertEqual(status, RRReachabilityStatusReachable);
+        XCTAssertEqual(type, RRConnectionTypeWiFi);
+        [expectation fulfill];
+    }];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+}
+
+- (void)testHTTPOnlyProbeAllowsCellularOnCellularConnection {
+    RRReachabilityHTTPProbeCaptureStub *reachability = [[RRReachabilityHTTPProbeCaptureStub alloc] init];
+    RRPathMonitorFake *fakeMonitor = [[RRPathMonitorFake alloc] init];
+    
+    [reachability setValue:fakeMonitor forKey:@"pathMonitor"];
+    [fakeMonitor setValue:@(YES) forKey:@"isSatisfied"];
+    [fakeMonitor setValue:@(RRConnectionTypeCellular) forKey:@"connectionType"];
+    
+    reachability.probeMode = RRProbeModeHTTPOnly;
+    reachability.allowCellularFallback = NO;
+    
+    XCTestExpectation *expectation = [self expectationWithDescription:@"HTTP probe should allow cellular on cellular path"];
+    [reachability checkReachabilityWithCompletion:^(RRReachabilityStatus status, RRConnectionType type) {
+        XCTAssertTrue(reachability.didPerformHTTPProbe, @"HTTP probe should run");
+        XCTAssertTrue(reachability.lastAllowsCellular, @"Cellular should be allowed on cellular path");
+        XCTAssertEqual(status, RRReachabilityStatusReachable);
+        XCTAssertEqual(type, RRConnectionTypeCellular);
+        [expectation fulfill];
+    }];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
 }
 
 #pragma mark - Notifier Lifecycle Tests
@@ -409,8 +516,10 @@
 - (void)testNotificationKeysDefined {
     XCTAssertNotNil(kRRReachabilityStatusKey, @"Status key should be defined");
     XCTAssertNotNil(kRRConnectionTypeKey, @"Connection type key should be defined");
+    XCTAssertNotNil(kRRSecondaryReachableKey, @"Secondary reachability key should be defined");
     XCTAssertEqualObjects(kRRReachabilityStatusKey, @"kRRReachabilityStatusKey");
     XCTAssertEqualObjects(kRRConnectionTypeKey, @"kRRConnectionTypeKey");
+    XCTAssertEqualObjects(kRRSecondaryReachableKey, @"kRRSecondaryReachableKey");
 }
 
 - (void)testNotificationPostedWhenStatusChanges {
@@ -473,9 +582,32 @@
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
-- (void)testNotificationUserInfoContainsLatestStatusAndConnectionType {
+- (void)testNotificationPostedWhenSecondaryReachabilityChanges {
     RRReachability *reachability = [[RRReachability alloc] init];
-    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification userInfo should contain latest status and connection type"];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeWiFi secondaryReachable:NO];
+    [self drainMainQueue];
+    
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification should be posted when secondary reachability changes"];
+    
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                    object:reachability
+                                                                     queue:[NSOperationQueue mainQueue]
+                                                                usingBlock:^(NSNotification *notification) {
+        NSNumber *secondary = notification.userInfo[kRRSecondaryReachableKey];
+        XCTAssertTrue(secondary.boolValue);
+        [expectation fulfill];
+    }];
+    
+    [reachability updateStatus:RRReachabilityStatusReachable connectionType:RRConnectionTypeWiFi secondaryReachable:YES];
+    
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
+- (void)testNotificationUserInfoContainsLatestStatusConnectionTypeAndSecondaryReachability {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    XCTestExpectation *expectation = [self expectationWithDescription:@"Notification userInfo should contain latest status, connection type, and secondary reachability"];
     
     id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
                                                                     object:reachability
@@ -483,9 +615,11 @@
                                                                 usingBlock:^(NSNotification *notification) {
         NSNumber *status = notification.userInfo[kRRReachabilityStatusKey];
         NSNumber *type = notification.userInfo[kRRConnectionTypeKey];
+        NSNumber *secondary = notification.userInfo[kRRSecondaryReachableKey];
         
         XCTAssertEqual(status.integerValue, RRReachabilityStatusNotReachable);
         XCTAssertEqual(type.integerValue, RRConnectionTypeNone);
+        XCTAssertFalse(secondary.boolValue);
         [expectation fulfill];
     }];
     

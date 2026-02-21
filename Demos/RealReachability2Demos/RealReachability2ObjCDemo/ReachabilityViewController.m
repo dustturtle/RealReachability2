@@ -16,6 +16,7 @@
 @property (nonatomic, strong) UITextField *httpURLField;
 @property (nonatomic, strong) UITextField *icmpHostField;
 @property (nonatomic, strong) UISwitch *periodicProbeSwitch;
+@property (nonatomic, strong) UISwitch *allowCellularFallbackSwitch;
 
 @property (nonatomic, strong) UIButton *applyConfigButton;
 @property (nonatomic, strong) UIButton *checkOnceButton;
@@ -50,7 +51,7 @@
 
     [self buildUI];
     [self loadConfigurationIntoForm];
-    [self handleStatus:RRReachabilityStatusUnknown connectionType:RRConnectionTypeNone source:@"initial"];
+    [self handleStatus:RRReachabilityStatusUnknown connectionType:RRConnectionTypeNone secondaryReachable:NO source:@"initial"];
     [self appendLogWithSource:@"INIT" english:@"Demo loaded." chinese:@"演示页面已加载。"];
     [self updateButtonState];
 }
@@ -110,7 +111,7 @@
     [self.stackView addArrangedSubview:[self makeLabeledContainerWithTitle:@"Timeout (s) / 超时(秒)" content:self.timeoutField]];
 
     self.httpURLField = [[UITextField alloc] init];
-    [self configureTextField:self.httpURLField placeholder:@"https://captive.apple.com/hotspot-detect.html"];
+    [self configureTextField:self.httpURLField placeholder:@"https://www.gstatic.com/generate_204"];
     self.httpURLField.keyboardType = UIKeyboardTypeURL;
     self.httpURLField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     [self.stackView addArrangedSubview:[self makeLabeledContainerWithTitle:@"HTTP Probe URL / HTTP 探测地址" content:self.httpURLField]];
@@ -122,6 +123,9 @@
     
     self.periodicProbeSwitch = [[UISwitch alloc] init];
     [self.stackView addArrangedSubview:[self makeSwitchRowWithTitle:@"Periodic Probe / 周期探测" toggle:self.periodicProbeSwitch]];
+    
+    self.allowCellularFallbackSwitch = [[UISwitch alloc] init];
+    [self.stackView addArrangedSubview:[self makeSwitchRowWithTitle:@"Allow Cellular Fallback / 允许蜂窝兜底" toggle:self.allowCellularFallbackSwitch]];
 
     self.applyConfigButton = [UIButton buttonWithType:UIButtonTypeSystem];
     [self.applyConfigButton setTitle:@"Apply / 应用" forState:UIControlStateNormal];
@@ -262,6 +266,7 @@
     self.httpURLField.text = reachability.httpProbeURL.absoluteString;
     self.icmpHostField.text = reachability.icmpHost;
     self.periodicProbeSwitch.on = reachability.periodicProbeEnabled;
+    self.allowCellularFallbackSwitch.on = reachability.allowCellularFallback;
 }
 
 - (void)applyConfigTapped {
@@ -275,13 +280,20 @@
 
     self.checking = YES;
     [self updateButtonState];
-    [self applyConfigurationFromInput];
+    if (![self applyConfigurationFromInput]) {
+        self.checking = NO;
+        [self updateButtonState];
+        return;
+    }
     [self appendLogWithSource:@"CHECK" english:@"Running one-time check..." chinese:@"正在执行单次检测..."];
 
     [[RRReachability sharedInstance] checkReachabilityWithCompletion:^(RRReachabilityStatus status, RRConnectionType type) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.checking = NO;
-            [self handleStatus:status connectionType:type source:@"check"];
+            [self handleStatus:status
+                connectionType:type
+           secondaryReachable:[RRReachability sharedInstance].isSecondaryReachable
+                        source:@"check"];
             [self updateButtonState];
         });
     }];
@@ -293,7 +305,9 @@
         return;
     }
 
-    [self applyConfigurationFromInput];
+    if (![self applyConfigurationFromInput]) {
+        return;
+    }
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(reachabilityChanged:)
@@ -326,14 +340,16 @@
 - (void)reachabilityChanged:(NSNotification *)notification {
     NSNumber *statusNumber = notification.userInfo[kRRReachabilityStatusKey];
     NSNumber *typeNumber = notification.userInfo[kRRConnectionTypeKey];
+    NSNumber *secondaryNumber = notification.userInfo[kRRSecondaryReachableKey];
 
     RRReachabilityStatus status = statusNumber != nil ? (RRReachabilityStatus)statusNumber.integerValue : RRReachabilityStatusUnknown;
     RRConnectionType type = typeNumber != nil ? (RRConnectionType)typeNumber.integerValue : RRConnectionTypeNone;
+    BOOL secondaryReachable = secondaryNumber.boolValue;
 
-    [self handleStatus:status connectionType:type source:@"stream"];
+    [self handleStatus:status connectionType:type secondaryReachable:secondaryReachable source:@"stream"];
 }
 
-- (void)applyConfigurationFromInput {
+- (BOOL)applyConfigurationFromInput {
     RRReachability *reachability = [RRReachability sharedInstance];
 
     RRProbeMode mode = RRProbeModeParallel;
@@ -341,6 +357,14 @@
         mode = RRProbeModeHTTPOnly;
     } else if (self.modeSegmentedControl.selectedSegmentIndex == 2) {
         mode = RRProbeModeICMPOnly;
+    }
+    
+    BOOL allowCellularFallback = self.allowCellularFallbackSwitch.isOn;
+    if (allowCellularFallback && mode == RRProbeModeICMPOnly) {
+        NSString *english = @"Invalid config: allowCellularFallback requires HTTP participation (parallel/httpOnly).";
+        NSString *chinese = @"配置无效：allowCellularFallback 必须包含 HTTP 探测（并行或仅HTTP模式）。";
+        [self appendLogWithSource:@"CONFIG" english:english chinese:chinese];
+        return NO;
     }
 
     NSTimeInterval timeout = reachability.timeout;
@@ -387,16 +411,21 @@
     reachability.httpProbeURL = url;
     reachability.icmpHost = host;
     reachability.periodicProbeEnabled = self.periodicProbeSwitch.isOn;
+    reachability.allowCellularFallback = allowCellularFallback;
 
     [self appendLogWithSource:@"CONFIG"
-                      english:[NSString stringWithFormat:@"Applied config: mode=%@, timeout=%.2f, url=%@, host=%@, periodicProbe=%@",
-                               [self modeLabel:mode], timeout, url.absoluteString, host, self.periodicProbeSwitch.isOn ? @"ON" : @"OFF"]
-                      chinese:[NSString stringWithFormat:@"已应用配置：模式=%@，超时=%.2f，URL=%@，主机=%@，周期探测=%@",
-                               [self modeLabel:mode], timeout, url.absoluteString, host, self.periodicProbeSwitch.isOn ? @"开" : @"关"]];
+                      english:[NSString stringWithFormat:@"Applied config: mode=%@, timeout=%.2f, url=%@, host=%@, periodicProbe=%@, allowCellularFallback=%@",
+                               [self modeLabel:mode], timeout, url.absoluteString, host, self.periodicProbeSwitch.isOn ? @"ON" : @"OFF", allowCellularFallback ? @"ON" : @"OFF"]
+                      chinese:[NSString stringWithFormat:@"已应用配置：模式=%@，超时=%.2f，URL=%@，主机=%@，周期探测=%@，蜂窝兜底=%@",
+                               [self modeLabel:mode], timeout, url.absoluteString, host, self.periodicProbeSwitch.isOn ? @"开" : @"关", allowCellularFallback ? @"开" : @"关"]];
+    return YES;
 }
 
-- (void)handleStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type source:(NSString *)source {
-    NSString *statusText = [self statusLabel:status];
+- (void)handleStatus:(RRReachabilityStatus)status
+      connectionType:(RRConnectionType)type
+ secondaryReachable:(BOOL)secondaryReachable
+              source:(NSString *)source {
+    NSString *statusText = [self statusLabel:status secondaryReachable:secondaryReachable];
     NSString *connectionText = [self connectionLabel:type];
 
     self.statusValueLabel.text = statusText;
@@ -404,13 +433,16 @@
     self.updatedValueLabel.text = [self.dateFormatter stringFromDate:[NSDate date]];
 
     [self appendLogWithSource:[self sourceLabel:source]
-                      english:[NSString stringWithFormat:@"status=%@, connection=%@", statusText, connectionText]
-                      chinese:[NSString stringWithFormat:@"状态=%@，连接=%@", statusText, connectionText]];
+                      english:[NSString stringWithFormat:@"status=%@, connection=%@, secondaryFallback=%@", statusText, connectionText, secondaryReachable ? @"YES" : @"NO"]
+                      chinese:[NSString stringWithFormat:@"状态=%@，连接=%@，副链路兜底=%@", statusText, connectionText, secondaryReachable ? @"是" : @"否"]];
 }
 
-- (NSString *)statusLabel:(RRReachabilityStatus)status {
+- (NSString *)statusLabel:(RRReachabilityStatus)status secondaryReachable:(BOOL)secondaryReachable {
     switch (status) {
         case RRReachabilityStatusReachable:
+            if (secondaryReachable) {
+                return @"reachable (secondary fallback) / 可达（副链路兜底）";
+            }
             return @"reachable / 可达";
         case RRReachabilityStatusNotReachable:
             return @"notReachable / 不可达";

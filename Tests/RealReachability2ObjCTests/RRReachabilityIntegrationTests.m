@@ -282,6 +282,7 @@
         // Verify notification contains expected keys
         XCTAssertNotNil(notification.userInfo[kRRReachabilityStatusKey]);
         XCTAssertNotNil(notification.userInfo[kRRConnectionTypeKey]);
+        XCTAssertNotNil(notification.userInfo[kRRSecondaryReachableKey]);
         
         [expectation fulfill];
     }];

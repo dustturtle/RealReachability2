@@ -10,7 +10,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Notification posted when reachability status or connection type changes
+/// Notification posted when reachability status, connection type, or secondary fallback state changes
 FOUNDATION_EXPORT NSNotificationName const kRRReachabilityChangedNotification;
 
 /// Key for the reachability status in the notification userInfo
@@ -18,6 +18,9 @@ FOUNDATION_EXPORT NSString * const kRRReachabilityStatusKey;
 
 /// Key for the connection type in the notification userInfo
 FOUNDATION_EXPORT NSString * const kRRConnectionTypeKey;
+
+/// Key for the secondary-link reachability flag in the notification userInfo
+FOUNDATION_EXPORT NSString * const kRRSecondaryReachableKey;
 
 /// Reachability status
 typedef NS_ENUM(NSInteger, RRReachabilityStatus) {
@@ -52,13 +55,16 @@ API_AVAILABLE(ios(12.0))
 /// Current connection type
 @property (nonatomic, readonly) RRConnectionType connectionType;
 
+/// Whether network is reachable through secondary fallback link (for example, cellular fallback while on Wi-Fi)
+@property (nonatomic, readonly) BOOL isSecondaryReachable;
+
 /// Probe mode (default: RRProbeModeParallel)
 @property (nonatomic, assign) RRProbeMode probeMode;
 
 /// Timeout for probe requests in seconds (default: 5.0)
 @property (nonatomic, assign) NSTimeInterval timeout;
 
-/// HTTP probe URL (default: https://captive.apple.com/hotspot-detect.html)
+/// HTTP probe URL (default: https://www.gstatic.com/generate_204)
 @property (nonatomic, strong) NSURL *httpProbeURL;
 
 /// ICMP ping host (default: 8.8.8.8)
@@ -67,12 +73,18 @@ API_AVAILABLE(ios(12.0))
 /// ICMP ping port (default: 53)
 @property (nonatomic, assign) uint16_t icmpPort;
 
+/// Enables cellular fallback when primary Wi-Fi probe fails (default: NO).
+/// Requires HTTP participation (.parallel or .httpOnly). Invalid with .icmpOnly.
+/// When enabled on Wi-Fi, probing uses HTTP primary/fallback checks and updates isSecondaryReachable.
+/// When disabled on Wi-Fi, primary HTTP probing keeps cellular access disabled.
+@property (nonatomic, assign) BOOL allowCellularFallback;
+
 /// Enables periodic probing while notifier is running (default: YES).
 /// When disabled, monitoring falls back to path-change-driven probing only.
 @property (nonatomic, assign) BOOL periodicProbeEnabled;
 
 /// Starts the reachability notifier
-/// Posts kRRReachabilityChangedNotification when status or connection type changes
+/// Posts kRRReachabilityChangedNotification when status, connection type, or secondary fallback state changes
 - (void)startNotifier;
 
 /// Stops the reachability notifier

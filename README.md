@@ -10,6 +10,7 @@ A modern, reliable network reachability library for iOS with both Swift and Obje
   - Objective-C version (iOS 12+) with notification-based API
 - **Configurable**: Choose between parallel, HTTP-only, or ICMP-only probe modes
 - **True Reachability**: Verifies actual internet connectivity, not just network presence
+- **Fallback Semantics (ObjC)**: Optional Wi-Fi->cellular fallback probe with explicit secondary-link state
 
 
 ## Architecture
@@ -99,7 +100,7 @@ Task {
 RealReachability.shared.configuration = ReachabilityConfiguration(
     probeMode: .parallel,  // .parallel, .httpOnly, or .icmpOnly
     timeout: 5.0,
-    httpProbeURL: URL(string: "https://captive.apple.com/hotspot-detect.html")!,
+    httpProbeURL: URL(string: "https://www.gstatic.com/generate_204")!,
     icmpHost: "8.8.8.8"  // Host for ICMP ping
 )
 ```
@@ -123,10 +124,15 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 - (void)reachabilityChanged:(NSNotification *)notification {
     RRReachabilityStatus status = [notification.userInfo[kRRReachabilityStatusKey] integerValue];
     RRConnectionType type = [notification.userInfo[kRRConnectionTypeKey] integerValue];
+    BOOL isSecondaryReachable = [notification.userInfo[kRRSecondaryReachableKey] boolValue];
     
     switch (status) {
         case RRReachabilityStatusReachable:
-            NSLog(@"Network reachable");
+            if (isSecondaryReachable) {
+                NSLog(@"Network reachable (secondary cellular fallback)");
+            } else {
+                NSLog(@"Network reachable");
+            }
             break;
         case RRReachabilityStatusNotReachable:
             NSLog(@"Network not reachable");
@@ -145,6 +151,10 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 [RRReachability sharedInstance].probeMode = RRProbeModeParallel;
 [RRReachability sharedInstance].timeout = 5.0;
 [RRReachability sharedInstance].periodicProbeEnabled = YES;  // default: YES
+[RRReachability sharedInstance].allowCellularFallback = NO;  // default: NO
+// allowCellularFallback requires HTTP participation (parallel/httpOnly)
+// when enabled on Wi-Fi, ObjC uses HTTP primary probe (cellular disabled) + fallback probe (cellular allowed)
+// when disabled on Wi-Fi, ObjC primary HTTP probing also keeps cellular disabled to avoid implicit fallback
 
 // Stop monitoring
 [[RRReachability sharedInstance] stopNotifier];

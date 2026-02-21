@@ -13,7 +13,9 @@
 NSNotificationName const kRRReachabilityChangedNotification = @"kRRReachabilityChangedNotification";
 NSString * const kRRReachabilityStatusKey = @"kRRReachabilityStatusKey";
 NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
+NSString * const kRRSecondaryReachableKey = @"kRRSecondaryReachableKey";
 static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
+static NSString * const kRRDefaultHTTPProbeURLString = @"https://www.gstatic.com/generate_204";
 
 @interface RRReachability ()
 
@@ -21,6 +23,7 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, assign, readwrite) RRReachabilityStatus currentStatus;
 @property (nonatomic, assign, readwrite) RRConnectionType connectionType;
+@property (nonatomic, assign, readwrite) BOOL isSecondaryReachable;
 @property (nonatomic, assign, readwrite) BOOL isNotifierRunning;
 @property (nonatomic, strong) dispatch_queue_t probeQueue;
 @property (nonatomic, strong) RRPingHelper *pingHelper;
@@ -36,6 +39,15 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 - (void)handleUnsatisfiedPathWithConnectionType:(RRConnectionType)type;
 - (void)triggerProbeForConnectionType:(RRConnectionType)type;
 - (void)runProbeWithConnectionType:(RRConnectionType)type token:(NSUInteger)token;
+- (void)performProbeForConnectionType:(RRConnectionType)type completion:(void (^)(BOOL reachable, BOOL secondaryReachable))completion;
+- (void)performHTTPProbeAllowingCellular:(BOOL)allowCellular completion:(void (^)(BOOL reachable))completion;
+- (void)performParallelProbeAllowingCellular:(BOOL)allowCellular completion:(void (^)(BOOL reachable))completion;
+- (BOOL)probeModeSupportsHTTP;
+- (BOOL)validateCellularFallbackConfiguration;
+- (BOOL)shouldAttemptCellularFallbackForConnectionType:(RRConnectionType)type;
+- (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type secondaryReachable:(BOOL)secondaryReachable;
+- (NSURL *)probeURLByAppendingNonce:(NSURL *)url;
+- (BOOL)isSuccessfulHTTPProbeResponse:(NSHTTPURLResponse *)response expectedURL:(NSURL *)expectedURL;
 
 @end
 
@@ -55,11 +67,13 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
     if (self) {
         _currentStatus = RRReachabilityStatusUnknown;
         _connectionType = RRConnectionTypeNone;
+        _isSecondaryReachable = NO;
         _probeMode = RRProbeModeParallel;
         _timeout = 5.0;
-        _httpProbeURL = [NSURL URLWithString:@"https://captive.apple.com/hotspot-detect.html"];
+        _httpProbeURL = [NSURL URLWithString:kRRDefaultHTTPProbeURLString];
         _icmpHost = @"8.8.8.8";
         _icmpPort = 53;  // Note: Port is not used for real ICMP ping, kept for API compatibility
+        _allowCellularFallback = NO;
         _periodicProbeEnabled = YES;
         _isNotifierRunning = NO;
         _probeInFlight = NO;
@@ -99,8 +113,8 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
  has no effect.
 
  - Note: Reachability change notifications are posted through
- `kRRReachabilityChangedNotification` when either the resolved status or
- connection type changes.
+ `kRRReachabilityChangedNotification` when resolved status, connection type,
+ or secondary fallback state changes.
 
 - SeeAlso: `-stopNotifier`
  */
@@ -125,6 +139,20 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
     
     [self.pathMonitor startMonitoring];
     [self startPeriodicProbeIfNeeded];
+}
+
+- (void)setProbeMode:(RRProbeMode)probeMode {
+    _probeMode = probeMode;
+    if (self.allowCellularFallback && ![self probeModeSupportsHTTP]) {
+        [self validateCellularFallbackConfiguration];
+    }
+}
+
+- (void)setAllowCellularFallback:(BOOL)allowCellularFallback {
+    _allowCellularFallback = allowCellularFallback;
+    if (_allowCellularFallback) {
+        [self validateCellularFallbackConfiguration];
+    }
 }
 
 - (void)stopNotifier {
@@ -220,7 +248,7 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
         self.pendingProbeConnectionType = RRConnectionTypeNone;
     }
     
-    [self updateStatus:RRReachabilityStatusNotReachable connectionType:type];
+    [self updateStatus:RRReachabilityStatusNotReachable connectionType:type secondaryReachable:NO];
 }
 
 - (void)triggerProbeForConnectionType:(RRConnectionType)type {
@@ -247,7 +275,7 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 
 - (void)runProbeWithConnectionType:(RRConnectionType)type token:(NSUInteger)token {
     __weak typeof(self) weakSelf = self;
-    [self performProbeWithCompletion:^(BOOL reachable) {
+    [self performProbeForConnectionType:type completion:^(BOOL reachable, BOOL secondaryReachable) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         
@@ -276,7 +304,7 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
             
             if (shouldApplyResult) {
                 RRReachabilityStatus status = reachable ? RRReachabilityStatusReachable : RRReachabilityStatusNotReachable;
-                [strongSelf updateStatus:status connectionType:type];
+                [strongSelf updateStatus:status connectionType:type secondaryReachable:secondaryReachable];
             }
             
             if (shouldRunPendingProbe) {
@@ -287,17 +315,24 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 }
 
 - (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type {
+    [self updateStatus:status connectionType:type secondaryReachable:NO];
+}
+
+- (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type secondaryReachable:(BOOL)secondaryReachable {
     dispatch_async(dispatch_get_main_queue(), ^{
         BOOL statusChanged = (self.currentStatus != status);
         BOOL connectionTypeChanged = (self.connectionType != type);
-        BOOL shouldNotify = statusChanged || connectionTypeChanged;
+        BOOL secondaryReachableChanged = (self.isSecondaryReachable != secondaryReachable);
+        BOOL shouldNotify = statusChanged || connectionTypeChanged || secondaryReachableChanged;
         self.currentStatus = status;
         self.connectionType = type;
+        self.isSecondaryReachable = secondaryReachable;
         
         if (shouldNotify) {
             NSDictionary *userInfo = @{
                 kRRReachabilityStatusKey: @(status),
-                kRRConnectionTypeKey: @(type)
+                kRRConnectionTypeKey: @(type),
+                kRRSecondaryReachableKey: @(secondaryReachable)
             };
             
             [[NSNotificationCenter defaultCenter] postNotificationName:kRRReachabilityChangedNotification
@@ -310,6 +345,7 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 - (void)checkReachabilityWithCompletion:(void (^)(RRReachabilityStatus, RRConnectionType))completion {
     if (!self.pathMonitor.isSatisfied) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.isSecondaryReachable = NO;
             completion(RRReachabilityStatusNotReachable, RRConnectionTypeNone);
         });
         return;
@@ -317,11 +353,55 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
     
     RRConnectionType type = self.pathMonitor.connectionType;
     
-    [self performProbeWithCompletion:^(BOOL reachable) {
+    [self performProbeForConnectionType:type completion:^(BOOL reachable, BOOL secondaryReachable) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.isSecondaryReachable = secondaryReachable;
             RRReachabilityStatus status = reachable ? RRReachabilityStatusReachable : RRReachabilityStatusNotReachable;
             completion(status, type);
         });
+    }];
+}
+
+- (void)performProbeForConnectionType:(RRConnectionType)type completion:(void (^)(BOOL reachable, BOOL secondaryReachable))completion {
+    BOOL shouldAttemptFallback = [self shouldAttemptCellularFallbackForConnectionType:type];
+    if (shouldAttemptFallback) {
+        if (![self validateCellularFallbackConfiguration]) {
+            completion(NO, NO);
+            return;
+        }
+        
+        [self performHTTPProbeAllowingCellular:NO completion:^(BOOL primaryReachable) {
+            if (primaryReachable) {
+                completion(YES, NO);
+                return;
+            }
+            
+            [self performHTTPProbeAllowingCellular:YES completion:^(BOOL fallbackReachable) {
+                completion(fallbackReachable, fallbackReachable);
+            }];
+        }];
+        return;
+    }
+    
+    // Wi-Fi primary probing should not silently route through cellular when fallback is disabled.
+    if (type == RRConnectionTypeWiFi && [self probeModeSupportsHTTP] && !self.allowCellularFallback) {
+        if (self.probeMode == RRProbeModeHTTPOnly) {
+            [self performHTTPProbeAllowingCellular:NO completion:^(BOOL reachable) {
+                completion(reachable, NO);
+            }];
+            return;
+        }
+        
+        if (self.probeMode == RRProbeModeParallel) {
+            [self performParallelProbeAllowingCellular:NO completion:^(BOOL reachable) {
+                completion(reachable, NO);
+            }];
+            return;
+        }
+    }
+    
+    [self performProbeWithCompletion:^(BOOL reachable) {
+        completion(reachable, NO);
     }];
 }
 
@@ -340,6 +420,10 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 }
 
 - (void)performParallelProbeWithCompletion:(void (^)(BOOL reachable))completion {
+    [self performParallelProbeAllowingCellular:YES completion:completion];
+}
+
+- (void)performParallelProbeAllowingCellular:(BOOL)allowCellular completion:(void (^)(BOOL reachable))completion {
     __block BOOL httpResult = NO;
     __block BOOL icmpResult = NO;
     __block BOOL httpDone = NO;
@@ -372,7 +456,7 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
     
     // HTTP Probe
     dispatch_async(self.probeQueue, ^{
-        [self performHTTPProbeWithCompletion:^(BOOL reachable) {
+        [self performHTTPProbeAllowingCellular:allowCellular completion:^(BOOL reachable) {
             dispatch_semaphore_wait(lock, DISPATCH_TIME_FOREVER);
             httpResult = reachable;
             httpDone = YES;
@@ -394,24 +478,137 @@ static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 }
 
 - (void)performHTTPProbeWithCompletion:(void (^)(BOOL reachable))completion {
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:self.httpProbeURL];
+    [self performHTTPProbeAllowingCellular:YES completion:completion];
+}
+
+- (void)performHTTPProbeAllowingCellular:(BOOL)allowCellular completion:(void (^)(BOOL reachable))completion {
+    NSURL *baseURL = self.httpProbeURL;
+    NSURL *probeURL = [self probeURLByAppendingNonce:baseURL];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:probeURL];
     request.HTTPMethod = @"HEAD";
     request.cachePolicy = NSURLRequestReloadIgnoringLocalAndRemoteCacheData;
     request.timeoutInterval = self.timeout;
+    request.allowsCellularAccess = allowCellular;
+    [request setValue:@"no-cache" forHTTPHeaderField:@"Cache-Control"];
+    [request setValue:@"no-cache" forHTTPHeaderField:@"Pragma"];
     
     NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request
                                                  completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
+#if DEBUG
+            NSLog(@"[RRReachability][HTTPProbe] failed allowCellular=%@ error=%@",
+                  allowCellular ? @"YES" : @"NO",
+                  error);
+#endif
+            completion(NO);
+            return;
+        }
+        
+        if (![response isKindOfClass:[NSHTTPURLResponse class]]) {
+#if DEBUG
+            NSLog(@"[RRReachability][HTTPProbe] failed allowCellular=%@ reason=non-http-response response=%@",
+                  allowCellular ? @"YES" : @"NO",
+                  response);
+#endif
             completion(NO);
             return;
         }
         
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        BOOL success = (httpResponse.statusCode >= 200 && httpResponse.statusCode < 400);
+        BOOL success = [self isSuccessfulHTTPProbeResponse:httpResponse expectedURL:baseURL];
+#if DEBUG
+        if (success) {
+            NSLog(@"[RRReachability][HTTPProbe] success allowCellular=%@ status=%ld responseURL=%@ expectedURL=%@",
+                  allowCellular ? @"YES" : @"NO",
+                  (long)httpResponse.statusCode,
+                  httpResponse.URL.absoluteString,
+                  baseURL.absoluteString);
+        }
+        if (!success) {
+            NSLog(@"[RRReachability][HTTPProbe] failed allowCellular=%@ status=%ld responseURL=%@ expectedURL=%@",
+                  allowCellular ? @"YES" : @"NO",
+                  (long)httpResponse.statusCode,
+                  httpResponse.URL.absoluteString,
+                  baseURL.absoluteString);
+        }
+#endif
         completion(success);
     }];
     
     [task resume];
+}
+
+- (NSURL *)probeURLByAppendingNonce:(NSURL *)url {
+    if (!url) {
+        return nil;
+    }
+    
+    NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    if (!components) {
+        return url;
+    }
+    
+    NSMutableArray<NSURLQueryItem *> *items = [NSMutableArray array];
+    if (components.queryItems.count > 0) {
+        [items addObjectsFromArray:components.queryItems];
+    }
+    [items addObject:[NSURLQueryItem queryItemWithName:@"rr_nonce" value:[[NSUUID UUID] UUIDString]]];
+    components.queryItems = items;
+    return components.URL ?: url;
+}
+
+- (BOOL)isSuccessfulHTTPProbeResponse:(NSHTTPURLResponse *)response expectedURL:(NSURL *)expectedURL {
+    if (!response || !expectedURL) {
+        return NO;
+    }
+    
+    NSURL *actualURL = response.URL;
+    if (!actualURL) {
+        return NO;
+    }
+    
+    NSString *expectedHost = expectedURL.host.lowercaseString;
+    NSString *actualHost = actualURL.host.lowercaseString;
+    BOOL hostMatches = (expectedHost.length > 0 && actualHost.length > 0 && [expectedHost isEqualToString:actualHost]);
+    if (!hostMatches) {
+        return NO;
+    }
+    
+    NSString *expectedPath = expectedURL.path.length > 0 ? expectedURL.path : @"/";
+    NSString *actualPath = actualURL.path.length > 0 ? actualURL.path : @"/";
+    BOOL pathMatches = [expectedPath isEqualToString:actualPath];
+    if (!pathMatches) {
+        return NO;
+    }
+    
+    NSInteger statusCode = response.statusCode;
+    BOOL isGenerate204Endpoint = [expectedPath isEqualToString:@"/generate_204"];
+    if (isGenerate204Endpoint) {
+        return statusCode == 204;
+    }
+    
+    return (statusCode >= 200 && statusCode < 300);
+}
+
+- (BOOL)probeModeSupportsHTTP {
+    return self.probeMode == RRProbeModeParallel || self.probeMode == RRProbeModeHTTPOnly;
+}
+
+- (BOOL)validateCellularFallbackConfiguration {
+    if (!self.allowCellularFallback) {
+        return YES;
+    }
+    
+    if ([self probeModeSupportsHTTP]) {
+        return YES;
+    }
+    
+    NSLog(@"[RRReachability] Configuration error: allowCellularFallback requires HTTP participation (probeMode must be RRProbeModeParallel or RRProbeModeHTTPOnly).");
+    return NO;
+}
+
+- (BOOL)shouldAttemptCellularFallbackForConnectionType:(RRConnectionType)type {
+    return self.allowCellularFallback && (type == RRConnectionTypeWiFi);
 }
 
 - (void)performICMPProbeWithCompletion:(void (^)(BOOL reachable))completion {

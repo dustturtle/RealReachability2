@@ -1,11 +1,11 @@
 # RealReachability2 调研 Checklist
 
 ## 1. 调研范围
-- Swift 主实现：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2`
-- Objective-C 主实现：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2ObjC`
-- 测试：`/Users/llzz/Desktop/gitprojs/RealReachability2/Tests`
-- 构建与 CI：`/Users/llzz/Desktop/gitprojs/RealReachability2/Package.swift`、`/Users/llzz/Desktop/gitprojs/RealReachability2/.github/workflows/ci.yml`
-- 文档：`/Users/llzz/Desktop/gitprojs/RealReachability2/README.md`
+- Swift 主实现：`RealReachability2/Sources/RealReachability2`
+- Objective-C 主实现：`RealReachability2/Sources/RealReachability2ObjC`
+- 测试：`RealReachability2/Tests`
+- 构建与 CI：`RealReachability2/Package.swift`、`RealReachability2/.github/workflows/ci.yml`
+- 文档：`RealReachability2/README.md`
 
 ## 2. 当前状态基线（已验证）
 - `swift build -v`：通过。
@@ -23,33 +23,37 @@
 
 ### P0（先修）
 - [ ] **Swift ICMP 可能悬挂**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2/Prober/ICMPPinger.swift:45`
+  - 位置：`/RealReachability2/Sources/RealReachability2/Prober/ICMPPinger.swift:45`
   - 说明：`PingOperation` 为局部对象，切主线程时 `[weak self]`，可能导致生命周期提前结束、continuation 不 resume。
 
 - [ ] **ObjC 一次性检查在未启动 monitor 时可能误判不可达**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2ObjC/RRReachability.m:129`
+  - 位置：`/RealReachability2/Sources/RealReachability2ObjC/RRReachability.m:129`
   - 说明：`checkReachabilityWithCompletion` 直接依赖 `pathMonitor.isSatisfied`，而 monitor 默认未启动。
 
 ### P1（第二阶段）
 - [ ] **Swift 6 并发兼容风险（async 上下文里直接 lock/unlock）**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2/RealReachability.swift:162`
+  - 位置：`/RealReachability2/Sources/RealReachability2/RealReachability.swift:162`
   - 说明：当前是 warning，后续 Swift 6 语言模式会升级为 error。
 
 - [ ] **PathMonitor 可重启语义风险**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2/Monitor/PathMonitorWrapper.swift:15`
+  - 位置：`/RealReachability2/Sources/RealReachability2/Monitor/PathMonitorWrapper.swift:15`
   - 说明：`NWPathMonitor` 被 cancel 后复用存在行为不确定性。
 
 - [ ] **流模型仅单订阅，可能互相覆盖**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2/RealReachability.swift:95`、`/Users/llzz/Desktop/gitprojs/RealReachability2/Sources/RealReachability2/Monitor/PathMonitorWrapper.swift:27`
+  - 位置：`/RealReachability2/Sources/RealReachability2/RealReachability.swift:95`、`RealReachability2/Sources/RealReachability2/Monitor/PathMonitorWrapper.swift:27`
   - 说明：当前 continuation 单实例，多个订阅者会相互抢占。
 
 - [ ] **README 与 SPM 平台声明不一致**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/README.md:10`、`/Users/llzz/Desktop/gitprojs/RealReachability2/Package.swift:8`
+  - 位置：`/RealReachability2/README.md:10`、`RealReachability2/Package.swift:8`
   - 说明：README 声称 ObjC iOS 12+，但 package 平台全局 iOS 13+。
 
 - [ ] **CI 过滤策略不精确**
-  - 位置：`/Users/llzz/Desktop/gitprojs/RealReachability2/.github/workflows/ci.yml:34`、`/Users/llzz/Desktop/gitprojs/RealReachability2/.github/workflows/ci.yml:52`
+  - 位置：`/RealReachability2/.github/workflows/ci.yml:34`、`RealReachability2/.github/workflows/ci.yml:52`
   - 说明：`--filter RealReachability2Tests` 会包含集成测试；ObjC 过滤名当前可能匹配不到目标。
+
+- [ ] **ObjC ICMP 支持“副链路兜底检测”能力（暂不实现，仅记录）**
+  - 位置：`/RealReachability2/Sources/RealReachability2ObjC/RRPingFoundation.m`、`RealReachability2/Sources/RealReachability2ObjC/RRReachability.m`
+  - 说明：当前 `allowCellularFallback`（默认 `NO`）仅在包含 HTTP 探测时生效；ICMP 模式下的“副链路兜底检测”尚未实现，暂仅记录待办。
 
 ## 5. 下一步执行顺序（建议）
 - [ ] 第 1 步：修复 P0（Swift ICMP 生命周期/超时兜底、ObjC 一次性检查路径获取逻辑）。
