@@ -1,0 +1,52 @@
+name: RealReachability2Demos
+options:
+  deploymentTarget:
+    iOS: '13.0'
+  createIntermediateGroups: true
+
+packages:
+  RealReachability2:
+    path: ../..
+
+targets:
+  RealReachability2Demo:
+    type: application
+    platform: iOS
+    deploymentTarget: '13.0'
+    sources:
+      - path: RealReachability2Demo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.realreachability2.demo.swift
+        PRODUCT_NAME: RealReachability2Demo
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: '1,2'
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIRequiresFullScreen: NO
+        INFOPLIST_KEY_CFBundleDisplayName: RealReachability2Demo
+        IPHONEOS_DEPLOYMENT_TARGET: 13.0
+    dependencies:
+      - package: RealReachability2
+        product: RealReachability2
+
+  RealReachability2ObjCDemo:
+    type: application
+    platform: iOS
+    deploymentTarget: '13.0'
+    sources:
+      - path: RealReachability2ObjCDemo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.realreachability2.demo.objc
+        PRODUCT_NAME: RealReachability2ObjCDemo
+        TARGETED_DEVICE_FAMILY: '1,2'
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIRequiresFullScreen: NO
+        INFOPLIST_KEY_CFBundleDisplayName: RealReachability2ObjCDemo
+        CLANG_ENABLE_MODULES: YES
+        IPHONEOS_DEPLOYMENT_TARGET: 13.0
+    dependencies:
+      - package: RealReachability2
+        product: RealReachability2ObjC
