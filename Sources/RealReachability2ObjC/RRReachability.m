@@ -97,9 +97,7 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
     self.pathMonitor.pathUpdateHandler = ^(BOOL satisfied, RRConnectionType type) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
-        
-        strongSelf.connectionType = type;
-        
+
         if (satisfied) {
             [strongSelf performProbeWithCompletion:^(BOOL reachable) {
                 [strongSelf updateStatus:reachable ? RRReachabilityStatusReachable : RRReachabilityStatusNotReachable

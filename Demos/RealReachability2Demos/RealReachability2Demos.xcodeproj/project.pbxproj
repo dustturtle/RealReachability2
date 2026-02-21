@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -18,7 +18,7 @@
 
 /* Begin PBXFileReference section */
 		0E3F893299FE9356E43D49FC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		1EF49E8B59E7F9C41096A5F0 /* RealReachability2ObjCDemo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RealReachability2ObjCDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1EF49E8B59E7F9C41096A5F0 /* RealReachability2ObjCDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RealReachability2ObjCDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		479CF05BB352EDDD23676494 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		6899EA15D1AA42C2FE62E381 /* ReachabilityViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ReachabilityViewController.h; sourceTree = "<group>"; };
 		6A7F05BC8D9CF083CF5CAD58 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
@@ -160,7 +160,6 @@
 			packageReferences = (
 				82107C79DE7A926C7D21B14E /* XCLocalSwiftPackageReference "../.." */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -199,6 +198,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = N77USD6DKH;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = RealReachability2ObjCDemo;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -340,6 +340,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = N77USD6DKH;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = RealReachability2ObjCDemo;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

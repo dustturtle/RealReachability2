@@ -14,6 +14,38 @@
 
 @interface RRReachability (TestHooks)
 - (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type;
+- (void)performProbeWithCompletion:(void (^)(BOOL reachable))completion;
+@end
+
+@interface RRPathMonitorFake : RRPathMonitor
+- (void)triggerPathSatisfied:(BOOL)satisfied connectionType:(RRConnectionType)type;
+@end
+
+@implementation RRPathMonitorFake
+
+- (void)startMonitoring {}
+- (void)stopMonitoring {}
+
+- (void)triggerPathSatisfied:(BOOL)satisfied connectionType:(RRConnectionType)type {
+    if (self.pathUpdateHandler) {
+        self.pathUpdateHandler(satisfied, type);
+    }
+}
+
+@end
+
+@interface RRReachabilityProbeStub : RRReachability
+@property (nonatomic, assign) BOOL stubProbeReachable;
+@end
+
+@implementation RRReachabilityProbeStub
+
+- (void)performProbeWithCompletion:(void (^)(BOOL reachable))completion {
+    if (completion) {
+        completion(self.stubProbeReachable);
+    }
+}
+
 @end
 
 @implementation RRReachabilityTests
@@ -446,6 +478,44 @@
     
     [self waitForExpectationsWithTimeout:1.0 handler:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
+- (void)testNotificationPostedWhenConnectionTypeChangesViaPathHandler {
+    RRReachabilityProbeStub *reachability = [[RRReachabilityProbeStub alloc] init];
+    RRPathMonitorFake *fakeMonitor = [[RRPathMonitorFake alloc] init];
+    reachability.stubProbeReachable = YES;
+    [reachability setValue:fakeMonitor forKey:@"pathMonitor"];
+    
+    [reachability startNotifier];
+    
+    XCTestExpectation *initialExpectation = [self expectationWithDescription:@"Initial reachable notification should be posted"];
+    id initialObserver = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                            object:reachability
+                                                                             queue:[NSOperationQueue mainQueue]
+                                                                        usingBlock:^(NSNotification *notification) {
+        [initialExpectation fulfill];
+    }];
+    
+    [fakeMonitor triggerPathSatisfied:YES connectionType:RRConnectionTypeWiFi];
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:initialObserver];
+    
+    XCTestExpectation *switchExpectation = [self expectationWithDescription:@"Connection type switch should post notification"];
+    __block RRConnectionType notifiedType = RRConnectionTypeNone;
+    id switchObserver = [[NSNotificationCenter defaultCenter] addObserverForName:kRRReachabilityChangedNotification
+                                                                           object:reachability
+                                                                            queue:[NSOperationQueue mainQueue]
+                                                                       usingBlock:^(NSNotification *notification) {
+        notifiedType = [notification.userInfo[kRRConnectionTypeKey] integerValue];
+        [switchExpectation fulfill];
+    }];
+    
+    [fakeMonitor triggerPathSatisfied:YES connectionType:RRConnectionTypeCellular];
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    XCTAssertEqual(notifiedType, RRConnectionTypeCellular);
+    
+    [[NSNotificationCenter defaultCenter] removeObserver:switchObserver];
+    [reachability stopNotifier];
 }
 
 @end
