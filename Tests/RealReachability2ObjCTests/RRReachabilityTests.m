@@ -109,6 +109,11 @@
     XCTAssertEqual(reachability.connectionType, RRConnectionTypeNone, @"Initial connection type should be none");
 }
 
+- (void)testDefaultPeriodicProbeEnabled {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    XCTAssertTrue(reachability.periodicProbeEnabled, @"Periodic probe should be enabled by default");
+}
+
 #pragma mark - Probe Mode Configuration Tests
 
 - (void)testSetProbeModeParallel {
@@ -189,6 +194,16 @@
     XCTAssertEqualObjects(reachability.httpProbeURL.absoluteString, @"https://www.google.com");
     XCTAssertEqualObjects(reachability.icmpHost, @"1.1.1.1");
     XCTAssertEqual(reachability.icmpPort, 80);
+}
+
+- (void)testSetPeriodicProbeEnabled {
+    RRReachability *reachability = [[RRReachability alloc] init];
+    
+    reachability.periodicProbeEnabled = NO;
+    XCTAssertFalse(reachability.periodicProbeEnabled, @"Should be able to disable periodic probe");
+    
+    reachability.periodicProbeEnabled = YES;
+    XCTAssertTrue(reachability.periodicProbeEnabled, @"Should be able to enable periodic probe");
 }
 
 #pragma mark - Notifier Lifecycle Tests
@@ -484,6 +499,7 @@
     RRReachabilityProbeStub *reachability = [[RRReachabilityProbeStub alloc] init];
     RRPathMonitorFake *fakeMonitor = [[RRPathMonitorFake alloc] init];
     reachability.stubProbeReachable = YES;
+    reachability.periodicProbeEnabled = NO;
     [reachability setValue:fakeMonitor forKey:@"pathMonitor"];
     
     [reachability startNotifier];

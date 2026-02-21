@@ -67,6 +67,10 @@ API_AVAILABLE(ios(12.0))
 /// ICMP ping port (default: 53)
 @property (nonatomic, assign) uint16_t icmpPort;
 
+/// Enables periodic probing while notifier is running (default: YES).
+/// When disabled, monitoring falls back to path-change-driven probing only.
+@property (nonatomic, assign) BOOL periodicProbeEnabled;
+
 /// Starts the reachability notifier
 /// Posts kRRReachabilityChangedNotification when status or connection type changes
 - (void)startNotifier;

@@ -144,6 +144,7 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 // Configuration
 [RRReachability sharedInstance].probeMode = RRProbeModeParallel;
 [RRReachability sharedInstance].timeout = 5.0;
+[RRReachability sharedInstance].periodicProbeEnabled = YES;  // default: YES
 
 // Stop monitoring
 [[RRReachability sharedInstance] stopNotifier];

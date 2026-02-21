@@ -13,6 +13,7 @@
 NSNotificationName const kRRReachabilityChangedNotification = @"kRRReachabilityChangedNotification";
 NSString * const kRRReachabilityStatusKey = @"kRRReachabilityStatusKey";
 NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
+static const NSTimeInterval kRRPeriodicProbeInterval = 5.0;
 
 @interface RRReachability ()
 
@@ -23,6 +24,18 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
 @property (nonatomic, assign, readwrite) BOOL isNotifierRunning;
 @property (nonatomic, strong) dispatch_queue_t probeQueue;
 @property (nonatomic, strong) RRPingHelper *pingHelper;
+@property (nonatomic, strong, nullable) dispatch_source_t periodicProbeTimer;
+@property (nonatomic, assign) BOOL probeInFlight;
+@property (nonatomic, assign) BOOL hasPendingProbe;
+@property (nonatomic, assign) RRConnectionType pendingProbeConnectionType;
+@property (nonatomic, assign) NSUInteger probeSequence;
+
+- (void)startPeriodicProbeIfNeeded;
+- (void)stopPeriodicProbeIfNeeded;
+- (void)handlePeriodicProbeTick;
+- (void)handleUnsatisfiedPathWithConnectionType:(RRConnectionType)type;
+- (void)triggerProbeForConnectionType:(RRConnectionType)type;
+- (void)runProbeWithConnectionType:(RRConnectionType)type token:(NSUInteger)token;
 
 @end
 
@@ -47,7 +60,12 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
         _httpProbeURL = [NSURL URLWithString:@"https://captive.apple.com/hotspot-detect.html"];
         _icmpHost = @"8.8.8.8";
         _icmpPort = 53;  // Note: Port is not used for real ICMP ping, kept for API compatibility
+        _periodicProbeEnabled = YES;
         _isNotifierRunning = NO;
+        _probeInFlight = NO;
+        _hasPendingProbe = NO;
+        _pendingProbeConnectionType = RRConnectionTypeNone;
+        _probeSequence = 0;
         _probeQueue = dispatch_queue_create("com.realreachability2.probe", DISPATCH_QUEUE_CONCURRENT);
         
         _pathMonitor = [[RRPathMonitor alloc] init];
@@ -84,7 +102,7 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
  `kRRReachabilityChangedNotification` when either the resolved status or
  connection type changes.
 
- - SeeAlso: `-stopNotifier`
+- SeeAlso: `-stopNotifier`
  */
 - (void)startNotifier {
     if (self.isNotifierRunning) {
@@ -99,16 +117,14 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
         if (!strongSelf) return;
 
         if (satisfied) {
-            [strongSelf performProbeWithCompletion:^(BOOL reachable) {
-                [strongSelf updateStatus:reachable ? RRReachabilityStatusReachable : RRReachabilityStatusNotReachable
-                          connectionType:type];
-            }];
+            [strongSelf triggerProbeForConnectionType:type];
         } else {
-            [strongSelf updateStatus:RRReachabilityStatusNotReachable connectionType:type];
+            [strongSelf handleUnsatisfiedPathWithConnectionType:type];
         }
     };
     
     [self.pathMonitor startMonitoring];
+    [self startPeriodicProbeIfNeeded];
 }
 
 - (void)stopNotifier {
@@ -117,8 +133,157 @@ NSString * const kRRConnectionTypeKey = @"kRRConnectionTypeKey";
     }
     
     self.isNotifierRunning = NO;
+    [self stopPeriodicProbeIfNeeded];
     self.pathMonitor.pathUpdateHandler = nil;
     [self.pathMonitor stopMonitoring];
+    
+    @synchronized(self) {
+        self.probeSequence += 1;
+        self.probeInFlight = NO;
+        self.hasPendingProbe = NO;
+        self.pendingProbeConnectionType = RRConnectionTypeNone;
+    }
+}
+
+- (void)setPeriodicProbeEnabled:(BOOL)periodicProbeEnabled {
+    _periodicProbeEnabled = periodicProbeEnabled;
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self.isNotifierRunning) {
+            return;
+        }
+        
+        if (self.periodicProbeEnabled) {
+            [self startPeriodicProbeIfNeeded];
+            [self handlePeriodicProbeTick];
+        } else {
+            [self stopPeriodicProbeIfNeeded];
+        }
+    });
+}
+
+- (void)startPeriodicProbeIfNeeded {
+    if (!self.periodicProbeEnabled || !self.isNotifierRunning || self.periodicProbeTimer != nil) {
+        return;
+    }
+    
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    if (!timer) {
+        return;
+    }
+    
+    uint64_t interval = (uint64_t)(kRRPeriodicProbeInterval * NSEC_PER_SEC);
+    dispatch_source_set_timer(timer,
+                              dispatch_time(DISPATCH_TIME_NOW, interval),
+                              interval,
+                              (uint64_t)(0.2 * NSEC_PER_SEC));
+    
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(timer, ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf handlePeriodicProbeTick];
+    });
+    
+    self.periodicProbeTimer = timer;
+    dispatch_resume(timer);
+}
+
+- (void)stopPeriodicProbeIfNeeded {
+    if (!self.periodicProbeTimer) {
+        return;
+    }
+    
+    dispatch_source_cancel(self.periodicProbeTimer);
+    self.periodicProbeTimer = nil;
+}
+
+- (void)handlePeriodicProbeTick {
+    if (!self.isNotifierRunning || !self.periodicProbeEnabled) {
+        return;
+    }
+    
+    RRConnectionType type = self.pathMonitor.connectionType;
+    if (!self.pathMonitor.isSatisfied) {
+        [self handleUnsatisfiedPathWithConnectionType:type];
+        return;
+    }
+    
+    [self triggerProbeForConnectionType:type];
+}
+
+- (void)handleUnsatisfiedPathWithConnectionType:(RRConnectionType)type {
+    @synchronized(self) {
+        self.probeSequence += 1;
+        self.probeInFlight = NO;
+        self.hasPendingProbe = NO;
+        self.pendingProbeConnectionType = RRConnectionTypeNone;
+    }
+    
+    [self updateStatus:RRReachabilityStatusNotReachable connectionType:type];
+}
+
+- (void)triggerProbeForConnectionType:(RRConnectionType)type {
+    NSUInteger token = 0;
+    
+    @synchronized(self) {
+        if (!self.isNotifierRunning) {
+            return;
+        }
+        
+        if (self.probeInFlight) {
+            self.hasPendingProbe = YES;
+            self.pendingProbeConnectionType = type;
+            return;
+        }
+        
+        self.probeInFlight = YES;
+        self.probeSequence += 1;
+        token = self.probeSequence;
+    }
+    
+    [self runProbeWithConnectionType:type token:token];
+}
+
+- (void)runProbeWithConnectionType:(RRConnectionType)type token:(NSUInteger)token {
+    __weak typeof(self) weakSelf = self;
+    [self performProbeWithCompletion:^(BOOL reachable) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BOOL shouldApplyResult = NO;
+            BOOL shouldRunPendingProbe = NO;
+            RRConnectionType nextType = RRConnectionTypeNone;
+            NSUInteger nextToken = 0;
+            
+            @synchronized(strongSelf) {
+                shouldApplyResult = strongSelf.isNotifierRunning && (token == strongSelf.probeSequence);
+                
+                if (strongSelf.hasPendingProbe && strongSelf.isNotifierRunning && strongSelf.pathMonitor.isSatisfied) {
+                    shouldRunPendingProbe = YES;
+                    nextType = strongSelf.pendingProbeConnectionType;
+                    strongSelf.hasPendingProbe = NO;
+                    strongSelf.probeSequence += 1;
+                    nextToken = strongSelf.probeSequence;
+                    strongSelf.probeInFlight = YES;
+                } else {
+                    strongSelf.hasPendingProbe = NO;
+                    strongSelf.pendingProbeConnectionType = RRConnectionTypeNone;
+                    strongSelf.probeInFlight = NO;
+                }
+            }
+            
+            if (shouldApplyResult) {
+                RRReachabilityStatus status = reachable ? RRReachabilityStatusReachable : RRReachabilityStatusNotReachable;
+                [strongSelf updateStatus:status connectionType:type];
+            }
+            
+            if (shouldRunPendingProbe) {
+                [strongSelf runProbeWithConnectionType:nextType token:nextToken];
+            }
+        });
+    }];
 }
 
 - (void)updateStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type {

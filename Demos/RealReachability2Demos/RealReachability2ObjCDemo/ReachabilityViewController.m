@@ -15,6 +15,7 @@
 @property (nonatomic, strong) UITextField *timeoutField;
 @property (nonatomic, strong) UITextField *httpURLField;
 @property (nonatomic, strong) UITextField *icmpHostField;
+@property (nonatomic, strong) UISwitch *periodicProbeSwitch;
 
 @property (nonatomic, strong) UIButton *applyConfigButton;
 @property (nonatomic, strong) UIButton *checkOnceButton;
@@ -118,6 +119,9 @@
     [self configureTextField:self.icmpHostField placeholder:@"8.8.8.8"];
     self.icmpHostField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     [self.stackView addArrangedSubview:[self makeLabeledContainerWithTitle:@"ICMP Host / ICMP 主机" content:self.icmpHostField]];
+    
+    self.periodicProbeSwitch = [[UISwitch alloc] init];
+    [self.stackView addArrangedSubview:[self makeSwitchRowWithTitle:@"Periodic Probe / 周期探测" toggle:self.periodicProbeSwitch]];
 
     self.applyConfigButton = [UIButton buttonWithType:UIButtonTypeSystem];
     [self.applyConfigButton setTitle:@"Apply / 应用" forState:UIControlStateNormal];
@@ -216,6 +220,22 @@
     return container;
 }
 
+- (UIStackView *)makeSwitchRowWithTitle:(NSString *)title toggle:(UISwitch *)toggle {
+    UILabel *titleLabel = [[UILabel alloc] init];
+    titleLabel.text = title;
+    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, toggle]];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.alignment = UIStackViewAlignmentCenter;
+    row.distribution = UIStackViewDistributionFill;
+    row.spacing = 8;
+    
+    [titleLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [toggle setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    return row;
+}
+
 - (void)configureTextField:(UITextField *)textField placeholder:(NSString *)placeholder {
     textField.borderStyle = UITextBorderStyleRoundedRect;
     textField.placeholder = placeholder;
@@ -241,6 +261,7 @@
     self.timeoutField.text = [NSString stringWithFormat:@"%.2f", reachability.timeout];
     self.httpURLField.text = reachability.httpProbeURL.absoluteString;
     self.icmpHostField.text = reachability.icmpHost;
+    self.periodicProbeSwitch.on = reachability.periodicProbeEnabled;
 }
 
 - (void)applyConfigTapped {
@@ -365,12 +386,13 @@
     reachability.timeout = timeout;
     reachability.httpProbeURL = url;
     reachability.icmpHost = host;
+    reachability.periodicProbeEnabled = self.periodicProbeSwitch.isOn;
 
     [self appendLogWithSource:@"CONFIG"
-                      english:[NSString stringWithFormat:@"Applied config: mode=%@, timeout=%.2f, url=%@, host=%@",
-                               [self modeLabel:mode], timeout, url.absoluteString, host]
-                      chinese:[NSString stringWithFormat:@"已应用配置：模式=%@，超时=%.2f，URL=%@，主机=%@",
-                               [self modeLabel:mode], timeout, url.absoluteString, host]];
+                      english:[NSString stringWithFormat:@"Applied config: mode=%@, timeout=%.2f, url=%@, host=%@, periodicProbe=%@",
+                               [self modeLabel:mode], timeout, url.absoluteString, host, self.periodicProbeSwitch.isOn ? @"ON" : @"OFF"]
+                      chinese:[NSString stringWithFormat:@"已应用配置：模式=%@，超时=%.2f，URL=%@，主机=%@，周期探测=%@",
+                               [self modeLabel:mode], timeout, url.absoluteString, host, self.periodicProbeSwitch.isOn ? @"开" : @"关"]];
 }
 
 - (void)handleStatus:(RRReachabilityStatus)status connectionType:(RRConnectionType)type source:(NSString *)source {
@@ -445,6 +467,7 @@
 - (void)appendLog:(NSString *)message {
     NSString *timestamp = [self.dateFormatter stringFromDate:[NSDate date]];
     NSString *line = [NSString stringWithFormat:@"[%@] %@", timestamp, message];
+    NSLog(@"%@", line);
     [self.logLines addObject:line];
 
     static const NSUInteger maxLines = 200;
