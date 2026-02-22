@@ -25,7 +25,7 @@
 		7FC2D528D5917FF1F7C60712 /* RealReachability2 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RealReachability2; path = ../..; sourceTree = SOURCE_ROOT; };
 		82D5232C00F4237C1EFC94C7 /* ReachabilityViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ReachabilityViewController.m; sourceTree = "<group>"; };
 		8B6C19E27792222A184C125A /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
-		DA3676F026A1422A553F3DBF /* RealReachability2Demo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RealReachability2Demo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA3676F026A1422A553F3DBF /* RealReachability2Demo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RealReachability2Demo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2B519490337B1961FBA78A7 /* ReachabilityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReachabilityViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -362,6 +362,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = N77USD6DKH;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = RealReachability2Demo;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -384,6 +385,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = N77USD6DKH;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = RealReachability2Demo;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

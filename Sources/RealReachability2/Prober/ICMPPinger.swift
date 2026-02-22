@@ -42,12 +42,15 @@ public final class ICMPPinger: Prober, @unchecked Sendable {
     /// Probes the network using real ICMP ping
     /// - Returns: `true` if the probe was successful
     public func probe() async -> Bool {
-        await withCheckedContinuation { continuation in
-            // Use a dedicated class to manage the ping operation
-            let pingOperation = PingOperation(host: host, timeout: timeout)
-            pingOperation.ping { success in
-                continuation.resume(returning: success)
+        let pingOperation = PingOperation(host: host, timeout: timeout)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                pingOperation.ping { success in
+                    continuation.resume(returning: success)
+                }
             }
+        } onCancel: {
+            pingOperation.cancel()
         }
     }
     
@@ -81,26 +84,48 @@ private final class PingOperation: NSObject, PingFoundationDelegate {
     }
     
     func ping(completion: @escaping (Bool) -> Void) {
-        self.completion = completion
+        lock.lock()
+        let alreadyCompleted = hasCompleted
+        if !alreadyCompleted {
+            self.completion = completion
+        }
+        lock.unlock()
         
-        // Run on main thread for RunLoop integration
+        if alreadyCompleted {
+            completion(false)
+            return
+        }
+
+        // Run on main thread for RunLoop integration.
         if Thread.isMainThread {
             startPing()
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.startPing()
-            }
+            return
         }
+
+        DispatchQueue.main.async { [self] in
+            startPing()
+        }
+    }
+
+    func cancel() {
+        finishWithResult(false)
     }
     
     private func startPing() {
+        lock.lock()
+        let alreadyCompleted = hasCompleted
+        lock.unlock()
+        if alreadyCompleted {
+            return
+        }
+        
         pingFoundation = PingFoundation(hostName: host)
         pingFoundation?.delegate = self
         pingFoundation?.start()
         
         // Setup timeout
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
-            self?.finishWithResult(false)
+        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [self] _ in
+            finishWithResult(false)
         }
     }
     
@@ -111,15 +136,22 @@ private final class PingOperation: NSObject, PingFoundationDelegate {
             return
         }
         hasCompleted = true
+        let callback = completion
+        completion = nil
         lock.unlock()
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.timeoutTimer?.invalidate()
-            self?.timeoutTimer = nil
-            self?.pingFoundation?.stop()
-            self?.pingFoundation = nil
-            self?.completion?(success)
-            self?.completion = nil
+
+        let cleanupAndCallback = { [self] in
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
+            pingFoundation?.stop()
+            pingFoundation = nil
+            callback?(success)
+        }
+
+        if Thread.isMainThread {
+            cleanupAndCallback()
+        } else {
+            DispatchQueue.main.async(execute: cleanupAndCallback)
         }
     }
     

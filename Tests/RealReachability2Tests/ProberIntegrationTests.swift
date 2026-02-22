@@ -11,6 +11,21 @@ import XCTest
 
 @available(iOS 13.0, macOS 10.15, *)
 final class ProberIntegrationTests: XCTestCase {
+    private func runWithTimeout<T>(_ seconds: TimeInterval, operation: @escaping @Sendable () async -> T) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask {
+                await operation()
+            }
+            group.addTask {
+                let nanos = UInt64(seconds * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanos)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
     
     override func setUpWithError() throws {
         // Integration tests require external network; skip on CI to avoid hangs/flakes
@@ -103,8 +118,35 @@ final class ProberIntegrationTests: XCTestCase {
     
     func testICMPPingerWithShortTimeout() async {
         let pinger = ICMPPinger(host: "8.8.8.8", port: 53, timeout: 0.001)
-        // Result depends on network speed, but should not crash
-        let _ = await pinger.probe()
+        let result = await runWithTimeout(2.0) {
+            await pinger.probe()
+        }
+        XCTAssertNotNil(result, "ICMP short-timeout probe should complete without hanging")
+    }
+    
+    func testICMPPingerProbeCancellationCompletesPromptly() async {
+        let pinger = ICMPPinger(host: "192.0.2.1", port: 53, timeout: 5.0)
+        let task = Task {
+            await pinger.probe()
+        }
+        
+        task.cancel()
+        
+        let result = await runWithTimeout(2.0) {
+            await task.value
+        }
+        XCTAssertNotNil(result, "Canceled ICMP probe should complete promptly")
+    }
+    
+    func testICMPPingerRepeatedShortTimeoutProbesDoNotHang() async {
+        let pinger = ICMPPinger(host: "192.0.2.1", port: 53, timeout: 0.001)
+        
+        for _ in 0..<10 {
+            let result = await runWithTimeout(2.0) {
+                await pinger.probe()
+            }
+            XCTAssertNotNil(result, "Repeated ICMP short-timeout probes should not hang")
+        }
     }
     
     func testICMPPingerProbeWithDetails() async {
@@ -271,6 +313,22 @@ final class ProberIntegrationTests: XCTestCase {
         
         // Both probes should fail, so result should be not reachable
         XCTAssertEqual(status, .notReachable, "Parallel mode should fail when both probes fail")
+    }
+    
+    func testParallelModeShortTimeoutDoesNotHang() async {
+        let config = ReachabilityConfiguration(
+            probeMode: .parallel,
+            timeout: 0.001,
+            httpProbeURL: URL(string: "https://this-domain-definitely-does-not-exist-12345.com")!,
+            icmpHost: "192.0.2.1",
+            icmpPort: 53
+        )
+        let reachability = RealReachability(configuration: config)
+        
+        let status = await runWithTimeout(3.0) {
+            await reachability.check()
+        }
+        XCTAssertNotNil(status, "Parallel probe with short timeout should complete without hanging")
     }
     
     // MARK: - Status Stream Tests
