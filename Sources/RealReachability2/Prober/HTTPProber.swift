@@ -71,6 +71,9 @@ public final class HTTPProber: Prober, @unchecked Sendable {
 #endif
             return success
         } catch {
+            if isExpectedCancellation(error) {
+                return false
+            }
 #if DEBUG
             logProbe("failed allowsCellular=\(allowsCellularAccess) error=\(error)")
 #endif
@@ -106,6 +109,9 @@ public final class HTTPProber: Prober, @unchecked Sendable {
             return ProbeResult(success: success, latencyMs: latency, error: nil)
         } catch {
             let latency = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+            if isExpectedCancellation(error) {
+                return ProbeResult(success: false, latencyMs: latency, error: nil)
+            }
 #if DEBUG
             logProbe("details failed error=\(error)")
 #endif
@@ -155,6 +161,15 @@ public final class HTTPProber: Prober, @unchecked Sendable {
             return response.statusCode == 204
         }
         return (200...299).contains(response.statusCode)
+    }
+
+    private func isExpectedCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
 #if DEBUG
