@@ -18,6 +18,7 @@ jobs:
   test-swift:
     name: Swift Tests
     runs-on: macos-14
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
