@@ -335,16 +335,16 @@ final class ProberIntegrationTests: XCTestCase {
     
     func testStatusStreamEmitsInitialStatus() async {
         let reachability = RealReachability()
-        
-        var receivedStatus: ReachabilityStatus?
-        
-        for await status in reachability.statusStream {
-            receivedStatus = status
-            break  // Just get the first status
+
+        let receivedStatus = await runWithTimeout(3.0) {
+            for await status in reachability.statusStream {
+                return status
+            }
+            return .unknown
         }
-        
+
         XCTAssertNotNil(receivedStatus, "Status stream should emit at least one status")
-        
+
         reachability.stopNotifier()
     }
 }

@@ -62,6 +62,8 @@ final class RealReachability2Tests: XCTestCase {
         XCTAssertEqual(config.httpProbeURL, HTTPProber.defaultURL)
         XCTAssertEqual(config.icmpHost, ICMPPinger.defaultHost)
         XCTAssertEqual(config.icmpPort, ICMPPinger.defaultPort)
+        XCTAssertTrue(config.periodicProbeEnabled)
+        XCTAssertFalse(config.allowCellularFallback)
     }
     
     func testCustomConfiguration() {
@@ -71,7 +73,9 @@ final class RealReachability2Tests: XCTestCase {
             timeout: 10.0,
             httpProbeURL: customURL,
             icmpHost: "1.1.1.1",
-            icmpPort: 80
+            icmpPort: 80,
+            periodicProbeEnabled: false,
+            allowCellularFallback: true
         )
         
         XCTAssertEqual(config.probeMode, .httpOnly)
@@ -79,6 +83,8 @@ final class RealReachability2Tests: XCTestCase {
         XCTAssertEqual(config.httpProbeURL, customURL)
         XCTAssertEqual(config.icmpHost, "1.1.1.1")
         XCTAssertEqual(config.icmpPort, 80)
+        XCTAssertFalse(config.periodicProbeEnabled)
+        XCTAssertTrue(config.allowCellularFallback)
     }
     
     func testConfigurationWithParallelMode() {
@@ -114,7 +120,7 @@ final class RealReachability2Tests: XCTestCase {
     func testHTTPProberDefaultURL() {
         XCTAssertEqual(
             HTTPProber.defaultURL.absoluteString,
-            "https://captive.apple.com/hotspot-detect.html"
+            "https://www.gstatic.com/generate_204"
         )
     }
     

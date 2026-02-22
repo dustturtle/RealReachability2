@@ -14,6 +14,8 @@ final class ReachabilityViewController: UIViewController {
     private let timeoutField = UITextField()
     private let httpURLField = UITextField()
     private let icmpHostField = UITextField()
+    private let periodicProbeSwitch = UISwitch()
+    private let allowCellularFallbackSwitch = UISwitch()
 
     private let applyConfigButton = UIButton(type: .system)
     private let checkOnceButton = UIButton(type: .system)
@@ -36,9 +38,7 @@ final class ReachabilityViewController: UIViewController {
     }()
 
     deinit {
-        monitorTask?.cancel()
-        monitorTask = nil
-        RealReachability.shared.stopNotifier()
+        stopMonitoringInternal()
     }
 
     override func viewDidLoad() {
@@ -48,7 +48,7 @@ final class ReachabilityViewController: UIViewController {
 
         buildUI()
         loadConfigurationIntoForm()
-        handleStatus(.unknown, source: "initial")
+        handleStatus(.unknown, secondaryReachable: false, source: "initial")
         appendLog(source: "INIT", english: "Demo loaded.", chinese: "演示页面已加载。")
         updateButtonState()
     }
@@ -97,7 +97,7 @@ final class ReachabilityViewController: UIViewController {
         timeoutField.keyboardType = .decimalPad
         stackView.addArrangedSubview(makeLabeledContainer(title: "Timeout (s) / 超时(秒)", content: timeoutField))
 
-        configureTextField(httpURLField, placeholder: "https://captive.apple.com/hotspot-detect.html")
+        configureTextField(httpURLField, placeholder: "https://www.gstatic.com/generate_204")
         httpURLField.keyboardType = .URL
         httpURLField.autocapitalizationType = .none
         stackView.addArrangedSubview(makeLabeledContainer(title: "HTTP Probe URL / HTTP 探测地址", content: httpURLField))
@@ -105,6 +105,9 @@ final class ReachabilityViewController: UIViewController {
         configureTextField(icmpHostField, placeholder: "8.8.8.8")
         icmpHostField.autocapitalizationType = .none
         stackView.addArrangedSubview(makeLabeledContainer(title: "ICMP Host / ICMP 主机", content: icmpHostField))
+
+        stackView.addArrangedSubview(makeSwitchRow(title: "Periodic Probe / 周期探测", toggle: periodicProbeSwitch))
+        stackView.addArrangedSubview(makeSwitchRow(title: "Allow Cellular Fallback / 允许蜂窝兜底", toggle: allowCellularFallbackSwitch))
 
         applyConfigButton.setTitle("Apply / 应用", for: .normal)
         applyConfigButton.addTarget(self, action: #selector(applyConfigTapped), for: .touchUpInside)
@@ -196,6 +199,22 @@ final class ReachabilityViewController: UIViewController {
         return container
     }
 
+    private func makeSwitchRow(title: String, toggle: UISwitch) -> UIStackView {
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+
+        let row = UIStackView(arrangedSubviews: [titleLabel, toggle])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.distribution = .fill
+        row.spacing = 8
+
+        titleLabel.setContentHuggingPriority(.required, for: .horizontal)
+        toggle.setContentHuggingPriority(.required, for: .horizontal)
+        return row
+    }
+
     private func configureTextField(_ textField: UITextField, placeholder: String) {
         textField.borderStyle = .roundedRect
         textField.placeholder = placeholder
@@ -217,6 +236,8 @@ final class ReachabilityViewController: UIViewController {
         timeoutField.text = String(format: "%.2f", config.timeout)
         httpURLField.text = config.httpProbeURL.absoluteString
         icmpHostField.text = config.icmpHost
+        periodicProbeSwitch.isOn = config.periodicProbeEnabled
+        allowCellularFallbackSwitch.isOn = config.allowCellularFallback
     }
 
     @objc
@@ -227,16 +248,25 @@ final class ReachabilityViewController: UIViewController {
     @objc
     private func checkOnceTapped() {
         guard !isChecking else { return }
-        _ = applyConfigurationFromInput()
+
         isChecking = true
         updateButtonState()
+
+        guard applyConfigurationFromInput() else {
+            isChecking = false
+            updateButtonState()
+            return
+        }
+
         appendLog(source: "CHECK", english: "Running one-time check...", chinese: "正在执行单次检测...")
 
         Task { [weak self] in
             guard let self else { return }
             let status = await RealReachability.shared.check()
+            let secondaryReachable = RealReachability.shared.isSecondaryReachable
+
             await MainActor.run {
-                self.handleStatus(status, source: "check")
+                self.handleStatus(status, secondaryReachable: secondaryReachable, source: "check")
                 self.isChecking = false
                 self.updateButtonState()
             }
@@ -250,15 +280,22 @@ final class ReachabilityViewController: UIViewController {
             return
         }
 
-        _ = applyConfigurationFromInput()
+        guard applyConfigurationFromInput() else {
+            return
+        }
+
         appendLog(source: "MONITOR", english: "Monitor started.", chinese: "监听已启动。")
 
         monitorTask = Task { [weak self] in
             guard let self else { return }
             for await status in RealReachability.shared.statusStream {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    break
+                }
+
+                let secondaryReachable = RealReachability.shared.isSecondaryReachable
                 await MainActor.run {
-                    self.handleStatus(status, source: "stream")
+                    self.handleStatus(status, secondaryReachable: secondaryReachable, source: "stream")
                 }
             }
         }
@@ -268,15 +305,13 @@ final class ReachabilityViewController: UIViewController {
 
     @objc
     private func stopMonitorTapped() {
-        if monitorTask == nil {
-            appendLog(source: "MONITOR", english: "Monitor is not running.", chinese: "监听当前未运行。")
+        guard monitorTask != nil else {
             RealReachability.shared.stopNotifier()
+            appendLog(source: "MONITOR", english: "Monitor is not running.", chinese: "监听当前未运行。")
             return
         }
 
-        monitorTask?.cancel()
-        monitorTask = nil
-        RealReachability.shared.stopNotifier()
+        stopMonitoringInternal()
         appendLog(source: "MONITOR", english: "Monitor stopped.", chinese: "监听已停止。")
         updateButtonState()
     }
@@ -287,7 +322,7 @@ final class ReachabilityViewController: UIViewController {
         logTextView.text = ""
     }
 
-    private func applyConfigurationFromInput() -> ReachabilityConfiguration {
+    private func applyConfigurationFromInput() -> Bool {
         let previous = RealReachability.shared.configuration
 
         let mode: ProbeMode
@@ -298,6 +333,16 @@ final class ReachabilityViewController: UIViewController {
             mode = .icmpOnly
         default:
             mode = .parallel
+        }
+
+        let allowCellularFallback = allowCellularFallbackSwitch.isOn
+        if allowCellularFallback && mode == .icmpOnly {
+            appendLog(
+                source: "CONFIG",
+                english: "Invalid config: allowCellularFallback requires HTTP participation (parallel/httpOnly).",
+                chinese: "配置无效：allowCellularFallback 必须包含 HTTP 探测（并行或仅HTTP模式）。"
+            )
+            return false
         }
 
         let timeout: TimeInterval
@@ -316,7 +361,8 @@ final class ReachabilityViewController: UIViewController {
         let url: URL
         if let raw = httpURLField.text?.trimmingCharacters(in: .whitespacesAndNewlines),
            !raw.isEmpty,
-           let parsed = URL(string: raw) {
+           let parsed = URL(string: raw),
+           parsed.scheme != nil {
             url = parsed
         } else {
             url = previous.httpProbeURL
@@ -347,31 +393,29 @@ final class ReachabilityViewController: UIViewController {
             timeout: timeout,
             httpProbeURL: url,
             icmpHost: host,
-            icmpPort: previous.icmpPort
+            icmpPort: previous.icmpPort,
+            periodicProbeEnabled: periodicProbeSwitch.isOn,
+            allowCellularFallback: allowCellularFallback
         )
 
         RealReachability.shared.configuration = config
         appendLog(
             source: "CONFIG",
-            english: "Applied config: mode=\(modeLabel(mode)), timeout=\(String(format: "%.2f", timeout)), url=\(url.absoluteString), host=\(host)",
-            chinese: "已应用配置：模式=\(modeLabel(mode))，超时=\(String(format: "%.2f", timeout))，URL=\(url.absoluteString)，主机=\(host)"
+            english: "Applied config: mode=\(modeLabel(mode)), timeout=\(String(format: "%.2f", timeout)), url=\(url.absoluteString), host=\(host), periodicProbe=\(periodicProbeSwitch.isOn ? "ON" : "OFF"), allowCellularFallback=\(allowCellularFallback ? "ON" : "OFF")",
+            chinese: "已应用配置：模式=\(modeLabel(mode))，超时=\(String(format: "%.2f", timeout))，URL=\(url.absoluteString)，主机=\(host)，周期探测=\(periodicProbeSwitch.isOn ? "开" : "关")，蜂窝兜底=\(allowCellularFallback ? "开" : "关")"
         )
-        return config
+
+        return true
     }
 
-    private func handleStatus(_ status: ReachabilityStatus, source: String) {
-        let statusText: String
+    private func handleStatus(_ status: ReachabilityStatus, secondaryReachable: Bool, source: String) {
+        let statusText = statusLabel(status, secondaryReachable: secondaryReachable)
         let connectionText: String
 
         switch status {
         case .reachable(let connectionType):
-            statusText = "reachable / 可达"
             connectionText = connectionLabel(for: connectionType)
-        case .notReachable:
-            statusText = "notReachable / 不可达"
-            connectionText = "none / 无"
-        case .unknown:
-            statusText = "unknown / 未知"
+        case .notReachable, .unknown:
             connectionText = "none / 无"
         }
 
@@ -381,9 +425,23 @@ final class ReachabilityViewController: UIViewController {
 
         appendLog(
             source: sourceLabel(source),
-            english: "status=\(statusText), connection=\(connectionText)",
-            chinese: "状态=\(statusText)，连接=\(connectionText)"
+            english: "status=\(statusText), connection=\(connectionText), secondaryFallback=\(secondaryReachable ? "YES" : "NO")",
+            chinese: "状态=\(statusText)，连接=\(connectionText)，副链路兜底=\(secondaryReachable ? "是" : "否")"
         )
+    }
+
+    private func statusLabel(_ status: ReachabilityStatus, secondaryReachable: Bool) -> String {
+        switch status {
+        case .reachable:
+            if secondaryReachable {
+                return "reachable (secondary fallback) / 可达（副链路兜底）"
+            }
+            return "reachable / 可达"
+        case .notReachable:
+            return "notReachable / 不可达"
+        case .unknown:
+            return "unknown / 未知"
+        }
     }
 
     private func connectionLabel(for type: ConnectionType) -> String {
@@ -429,7 +487,9 @@ final class ReachabilityViewController: UIViewController {
 
     private func appendLog(_ message: String) {
         let timestamp = dateFormatter.string(from: Date())
-        logLines.append("[\(timestamp)] \(message)")
+        let line = "[\(timestamp)] \(message)"
+        NSLog("%@", line)
+        logLines.append(line)
 
         if logLines.count > maxLogLines {
             logLines.removeFirst(logLines.count - maxLogLines)
@@ -446,5 +506,12 @@ final class ReachabilityViewController: UIViewController {
         checkOnceButton.isEnabled = !isChecking
         startMonitorButton.isEnabled = monitorTask == nil
         stopMonitorButton.isEnabled = monitorTask != nil
+    }
+
+    private func stopMonitoringInternal() {
+        monitorTask?.cancel()
+        monitorTask = nil
+        RealReachability.shared.stopNotifier()
+        updateButtonState()
     }
 }
