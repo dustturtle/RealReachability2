@@ -140,18 +140,24 @@ private final class PingOperation: NSObject, PingFoundationDelegate {
         completion = nil
         lock.unlock()
 
-        let cleanupAndCallback = { [self] in
+        // Resume the continuation immediately on the current thread so that
+        // callers (especially Swift concurrency tasks) are never blocked
+        // waiting for the main RunLoop to pump.
+        callback?(success)
+
+        // Timer invalidation and PingFoundation cleanup require the main
+        // thread / RunLoop, but they don't affect the caller any more.
+        let cleanup = { [self] in
             timeoutTimer?.invalidate()
             timeoutTimer = nil
             pingFoundation?.stop()
             pingFoundation = nil
-            callback?(success)
         }
 
         if Thread.isMainThread {
-            cleanupAndCallback()
+            cleanup()
         } else {
-            DispatchQueue.main.async(execute: cleanupAndCallback)
+            DispatchQueue.main.async(execute: cleanup)
         }
     }
     
