@@ -1,6 +1,6 @@
 # RealReachability2
 
-A modern, reliable network reachability library for iOS with both Swift and Objective-C support. Version 1.0 released!
+A modern, reliable network reachability library for iOS with both Swift and Objective-C support. Version 1.0 released! Shipped with demos!
 
 ## Features
 
