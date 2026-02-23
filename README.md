@@ -7,7 +7,8 @@ A modern, reliable network reachability library for iOS with both Swift and Obje
 - **Hybrid Approach**: Combines NWPathMonitor, HTTP HEAD, and ICMP Ping for accurate reachability detection
 - **Dual Target Support**: 
   - Swift version (iOS 13+) with async/await API
-  - Objective-C version (iOS 12+) with notification-based API
+  - Objective-C API supports iOS 12+ (non-SPM/source integration) with notification-based API
+  - When integrated via Swift Package Manager, package platform is iOS 13+
 - **Configurable**: Choose between parallel, HTTP-only, or ICMP-only probe modes
 - **True Reachability**: Verifies actual internet connectivity, not just network presence
 - **Fallback Semantics (ObjC)**: Optional Wi-Fi->cellular fallback probe with explicit secondary-link state
@@ -60,9 +61,12 @@ Then add the appropriate target:
 // For Swift (iOS 13+)
 .product(name: "RealReachability2", package: "RealReachability2")
 
-// For Objective-C (iOS 12+)
+// For Objective-C via SPM (iOS 13+)
 .product(name: "RealReachability2ObjC", package: "RealReachability2")
 ```
+
+> Note: Under Swift Package Manager, both products follow the package-level `platforms` setting (currently iOS 13+).
+> The Objective-C API itself can support iOS 12+, but that does not mean this current SPM package can be consumed directly by iOS 12 projects.
 
 ## Usage
 
@@ -176,8 +180,9 @@ RealReachability.shared.configuration = ReachabilityConfiguration(
 
 ## Requirements
 
-- **Swift version**: iOS 13.0+
-- **Objective-C version**: iOS 12.0+
+- **Swift API**: iOS 13.0+
+- **Objective-C API**: iOS 12.0+
+- **Swift Package Manager integration (current package)**: iOS 13.0+
 - Swift 5.7+
 
 ## License
