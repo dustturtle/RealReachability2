@@ -68,6 +68,61 @@ Then add the appropriate target:
 > Note: Under Swift Package Manager, both products follow the package-level `platforms` setting (currently iOS 13+).
 > The Objective-C API itself can support iOS 12+, but that does not mean this current SPM package can be consumed directly by iOS 12 projects.
 
+### Source Integration (Without SPM)
+
+If you need different deployment targets between Swift and Objective-C integration, you can integrate from source directly.
+
+#### Swift Source Integration (iOS 13+)
+
+1. In Xcode, use **File -> Add Files to "YourProject"...** and add all `.swift` files under `Sources/RealReachability2/`.
+2. In the add-files dialog, enable your app target in **Add to targets** (or your internal framework target).
+3. In **Target -> Build Settings -> iOS Deployment Target**, set iOS 13.0 or later.
+4. In **Target -> Build Phases -> Link Binary With Libraries**, ensure `Network.framework` is present (required by `NWPathMonitor` usage).
+5. In **Target -> Build Phases -> Compile Sources**, verify added Swift files are included.
+
+Usage:
+
+```swift
+// If files are added into the same app target, no module import is required.
+let status = await RealReachability.shared.check()
+```
+
+#### Objective-C Source Integration (iOS 12+)
+
+1. In Xcode, use **File -> Add Files to "YourProject"...** and add Objective-C sources under `Sources/RealReachability2ObjC/`:
+   - `RRReachability.m`
+   - `RRPathMonitor.m`
+   - `RRPingHelper.m`
+   - `RRPingFoundation.m`
+2. Add headers under `Sources/RealReachability2ObjC/include/`:
+   - `RealReachability2ObjC.h`
+   - `RRReachability.h`
+   - `RRPathMonitor.h`
+   - `RRPingFoundation.h`
+   - `RRPingHelper.h`
+3. In the add-files dialog, enable your target in **Add to targets**, and verify `.m` files are in **Target -> Build Phases -> Compile Sources**.
+4. If your project does not use header maps for these paths, set **Target -> Build Settings -> Header Search Paths** to include:
+   - `$(SRCROOT)/.../Sources/RealReachability2ObjC/include` (replace `...` with your actual relative path)
+5. In **Target -> Build Phases -> Link Binary With Libraries**, ensure `Network.framework` is present.
+6. Keep **Target -> Build Settings -> iOS Deployment Target** at iOS 12.0 or later for ObjC source integration.
+
+Usage:
+
+```objc
+#import "RealReachability2ObjC.h"
+// or: #import "RRReachability.h"
+```
+
+If your app is Swift-first but integrates Objective-C sources directly:
+
+1. Set **Target -> Build Settings -> Objective-C Bridging Header** to your bridging header file path.
+2. Add `#import "RealReachability2ObjC.h"` inside that bridging header.
+
+Notes:
+
+- `Network.framework` is required for path monitoring.
+- `RRPingFoundation.h` references `CFNetwork`/`CoreServices`; these are Apple system frameworks. In typical iOS builds they resolve automatically, but if your linker reports missing symbols, add `CFNetwork.framework` explicitly.
+
 ## Usage
 
 ### Swift (iOS 13+)
